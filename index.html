@@ -164,10 +164,12 @@ function authScreen(mode=QAMI?'up':'in'){
   ${mode==='up'?'<input type="text" id="a_n" placeholder="Nom complet" autocomplete="name">':''}
   <input type="email" id="a_e" placeholder="Adresse e-mail" autocomplete="email">
   <input type="password" id="a_p" placeholder="Mot de passe (6 caractères min.)" autocomplete="${mode==='up'?'new-password':'current-password'}">
+  ${mode==='up'?`<label class="muted" style="display:flex;gap:8px;align-items:flex-start;margin:0 0 10px"><input type="checkbox" id="a_r" style="width:auto;margin:3px 0 0"><span>J'accepte les <a href="#" id="a_rl" style="color:var(--pr);font-weight:700">règles de la communauté</a></span></label>`:''}
   <button class="btn" style="width:100%" id="a_go">${mode==='up'?'Créer mon compte':'Se connecter'}</button>
   <p class="muted" id="a_m" style="text-align:center;margin:10px 0 0"></p></div>
   <p style="text-align:center"><button class="btn sec" id="a_sw">${mode==='up'?'J\'ai déjà un compte':'Créer un compte'}</button></p></div>`;
   $('#a_sw').onclick=()=>authScreen(mode==='up'?'in':'up');
+  const rl=$('#a_rl');if(rl)rl.onclick=e=>{e.preventDefault();rulesModal()};
   $('#a_go').onclick=async()=>{
     const email=$('#a_e').value.trim(),password=$('#a_p').value,m=$('#a_m'),b=$('#a_go');
     if(!email||password.length<6){m.textContent='E-mail et mot de passe (6 caractères min.) requis.';return}
@@ -175,6 +177,7 @@ function authScreen(mode=QAMI?'up':'in'){
     if(mode==='up'){
       const full_name=$('#a_n').value.trim();
       if(!full_name){m.textContent='Votre nom est requis.';b.disabled=false;return}
+      if(!$('#a_r').checked){m.textContent='Acceptez les règles de la communauté pour continuer.';b.disabled=false;return}
       const{data,error}=await sb.auth.signUp({email,password,options:{data:{full_name}}});
       b.disabled=false;
       if(error){m.textContent=error.message;return}
@@ -320,7 +323,7 @@ async function vFil(){
   loadNotes();loadStories();loadPosts();
 }
 async function publishPost(){
-  const t=$('#pt').value.trim(),f=$('#pf').files[0],b=$('#pub');
+  const t=$('#pt').value.trim(),f=$('#pf').files[0],b=$('#pub');if(guard(t))return;
   if(!t&&!f)return toast('Écrivez quelque chose ou ajoutez un média.');
   b.disabled=true;b.textContent='Envoi…';
   try{
@@ -348,7 +351,7 @@ function addStory(){
   <div class="row" style="margin-top:14px"><button class="btn" id="sgo" style="flex:1">Publier</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#sf').onchange=e=>$('#sfn').textContent=e.target.files[0]?.name?.slice(0,22)||'';
   $('#sgo').onclick=async()=>{
-    const t=$('#st').value.trim(),f=$('#sf').files[0],b=$('#sgo');
+    const t=$('#st').value.trim(),f=$('#sf').files[0],b=$('#sgo');if(guard(t))return;
     if(!t&&!f)return toast('Ajoutez du texte ou un média.');
     b.disabled=true;b.textContent='Envoi…';
     try{
@@ -406,7 +409,7 @@ function renderPosts(){
   if(!S.posts.length){box.innerHTML='<div class="empty">Aucune publication pour le moment.</div>';return}
   S.adShown=new Set();const AD=adsFor();let adn=0;box.innerHTML=S.posts.map((p,ix)=>{
     const u=S.cache[p.user_id],lk=S.likes[p.id]||[],mine=lk.includes(S.me.id);
-    return`<div class="card" id="p_${p.id}"><div class="ph" data-act="profil" data-id="${p.user_id}">${av(u,42)}<div style="flex:1"><b>${esc(name(u))}</b><span class="muted">${ago(p.created_at)}</span></div>${p.user_id===S.me.id?`<button class="btn sec sm" data-act="delpost" data-id="${p.id}">🗑</button>`:''}</div>
+    return`<div class="card" id="p_${p.id}"><div class="ph" data-act="profil" data-id="${p.user_id}">${av(u,42)}<div style="flex:1"><b>${esc(name(u))}</b><span class="muted">${ago(p.created_at)}</span></div>${p.user_id===S.me.id?`<button class="btn sec sm" data-act="delpost" data-id="${p.id}">🗑</button>`:`<button class="btn sec sm" data-act="report" data-id="${p.id}" data-k="post">🚩</button>`}</div>
     ${p.content?`<div class="pt">${esc(p.content)}</div>`:''}
     <div class="pm">${p.image_url?`<img src="${esc(p.image_url)}" loading="lazy" alt="">`:''}${p.video_url?`<video src="${esc(p.video_url)}" controls playsinline preload="metadata"></video>`:''}</div>
     <div class="muted" style="margin-top:8px">${lk.length?`👍 ${lk.length}`:''}${S.coms[p.id]?` · ${S.coms[p.id]} commentaire(s)`:''}</div>
@@ -428,7 +431,7 @@ async function toggleComs(id){
    `<div class="row" style="margin-top:8px"><input type="text" id="ci_${id}" placeholder="Écrire un commentaire…" style="flex:1;margin:0"><button class="btn sm" data-act="comsend" data-id="${id}">Envoyer</button></div>`;
 }
 async function sendCom(id){
-  const i=$('#ci_'+id),t=i.value.trim();if(!t)return;i.disabled=true;
+  const i=$('#ci_'+id),t=i.value.trim();if(!t)return;if(guard(t))return;i.disabled=true;
   const{error}=await sb.from('comments').insert({post_id:id,user_id:S.me.id,content:t});
   if(error){toast('Erreur : '+error.message);i.disabled=false;return}
   S.coms[id]=(S.coms[id]||0)+1;renderPosts();$('#c_'+id).hidden=true;toggleComs(id);
@@ -537,7 +540,7 @@ function newEvent(){
   <div class="row" style="margin-top:14px"><button class="btn" id="v_go" style="flex:1">Publier</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#v_i').onchange=e=>$('#v_in').textContent=e.target.files[0]?.name?.slice(0,22)||'';
   $('#v_go').onclick=async()=>{
-    const t=$('#v_t').value.trim(),d=$('#v_d').value,b=$('#v_go');
+    const t=$('#v_t').value.trim(),d=$('#v_d').value,b=$('#v_go');if(guard(t,$('#v_x').value))return;
     if(!t||!d)return toast('Titre et date requis.');
     b.disabled=true;b.textContent='Envoi…';
     try{
@@ -621,7 +624,7 @@ function newVideo(){
   <div class="row" style="margin-top:8px"><button class="btn" id="nv_go" style="flex:1">Publier</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#nv_f').onchange=e=>$('#nv_n').textContent=e.target.files[0]?.name?.slice(0,22)||'';
   $('#nv_go').onclick=async()=>{
-    const f=$('#nv_f').files[0],b=$('#nv_go');
+    const f=$('#nv_f').files[0],b=$('#nv_go');if(guard($('#nv_t').value))return;
     if(!f||!f.type.startsWith('video'))return toast('Choisissez une vidéo.');
     b.disabled=true;b.textContent='Envoi…';
     try{
@@ -677,7 +680,7 @@ async function prodModal(id){
   <div class="muted" style="margin:4px 0">${[p.category,p.etat,p.city].filter(Boolean).map(esc).join(' · ')}${p.stock!=null?` · Stock : ${esc(p.stock)}`:''}</div>
   ${p.description?`<p class="pt">${esc(p.description)}</p>`:''}
   <div class="li" data-act="profil" data-id="${p.user_id}" onclick="closeModal()">${av(s,36)}<div class="gr"><b>${esc(name(s))}</b><span>Vendeur</span></div></div>
-  <div class="row" style="margin-top:10px">${p.whatsapp&&!p.sold?`<a class="btn" style="background:#25d366;text-decoration:none;flex:1;text-align:center" target="_blank" rel="noopener" href="https://wa.me/${esc(String(p.whatsapp).replace(/\D/g,''))}?text=${encodeURIComponent('Bonjour, je suis intéressé(e) par : '+p.name)}">WhatsApp</a>`:''}<button class="btn sec" data-act="fav" data-id="${p.id}">${fav?'❤️ Favori':'🤍 Favori'}</button><button class="btn sec" onclick="closeModal()">Fermer</button></div>`);
+  <div class="row" style="margin-top:10px">${p.whatsapp&&!p.sold?`<a class="btn" style="background:#25d366;text-decoration:none;flex:1;text-align:center" target="_blank" rel="noopener" href="https://wa.me/${esc(String(p.whatsapp).replace(/\D/g,''))}?text=${encodeURIComponent('Bonjour, je suis intéressé(e) par : '+p.name)}">WhatsApp</a>`:''}<button class="btn sec" data-act="fav" data-id="${p.id}">${fav?'❤️ Favori':'🤍 Favori'}</button>${p.user_id!==S.me.id?`<button class="btn sec" data-act="report" data-id="${p.id}" data-k="product">🚩 Signaler</button>`:''}<button class="btn sec" onclick="closeModal()">Fermer</button></div>`);
 }
 function prodForm(p){
   const e=!!p;
@@ -694,7 +697,7 @@ function prodForm(p){
   <div class="row" style="margin-top:14px"><button class="btn" id="pgo" style="flex:1">${e?'Enregistrer':'Mettre en vente'}</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#pi').onchange=ev=>$('#pin').textContent=ev.target.files[0]?.name?.slice(0,22)||'';
   $('#pgo').onclick=async()=>{
-    const n=$('#pn').value.trim(),pr=parseFloat($('#pp').value),b=$('#pgo');
+    const n=$('#pn').value.trim(),pr=parseFloat($('#pp').value),b=$('#pgo');if(guard(n,$('#pd').value))return;
     if(!n||!(pr>=0))return toast('Nom et prix requis.');
     b.disabled=true;b.textContent='Envoi…';
     try{
@@ -721,6 +724,61 @@ async function boostModal(id){
     if(error){toast('Erreur : '+error.message);b.disabled=false;return}
     closeModal();toast('Demande envoyée ✅ Validation après vérification du paiement.');vShop();
   };
+}
+
+/* ---------- RÈGLES, FILTRE ET SIGNALEMENTS ---------- */
+const BAD_WORDS=['bombe artisanale','fabriquer une bombe','fabriquer des bombes','fabriquer des explosifs','fabriquer une arme','vente d armes','vend des armes','vente de drogue','vente de cocaine','vente d heroine','vente de tramadol','faux billets','faux diplomes','faux papiers','pedopornographie','porno enfant','video porno','porno gratuit','rejoindre daesh','boko haram recrute'];
+function cleanTxt(t){return String(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/['’`\-]/g,' ').replace(/\s+/g,' ')}
+function guard(...txt){
+  const s=cleanTxt(txt.join(' '));
+  if(BAD_WORDS.some(w=>s.includes(w))){toast("Ce contenu est interdit par les règles d'Urbain.");return true}
+  return false;
+}
+function rulesModal(){
+  modal(`<h3>📜 Règles de la communauté</h3>
+  <p class="muted" style="margin-top:0">Pour que chacun se sente bien sur Urbain, il est <b>interdit</b> de publier, de vendre ou de partager :</p>
+  <ul style="margin:0 0 10px 18px;padding:0;line-height:1.5">
+  <li>Tout contenu violent, qui pousse à la haine, au terrorisme ou à faire du mal à quelqu'un.</li>
+  <li>Tout contenu sexuel, et surtout tout contenu qui concerne des mineurs.</li>
+  <li>Des armes, des drogues, des médicaments interdits, de faux billets, de faux papiers, ou tout article illégal.</li>
+  <li>Des arnaques, de fausses annonces, ou le fait de se faire passer pour quelqu'un d'autre.</li>
+  <li>Les insultes, le harcèlement, et les photos ou numéros d'une personne sans son accord.</li>
+  </ul>
+  <p class="muted">Tu es responsable de ce que tu publies. Tu peux signaler un contenu avec le bouton 🚩 : l'administrateur le vérifie et le supprime si besoin. Un contenu interdit est supprimé, et le compte peut être supprimé. Les contenus illégaux peuvent être transmis aux autorités.</p>
+  <button class="btn" style="width:100%" onclick="closeModal()">J'ai compris</button>`);
+}
+function reportModal(id,k){
+  modal(`<h3>🚩 Signaler</h3><p class="muted" style="margin-top:0">Pourquoi signalez-vous ce contenu ?</p>
+  <select id="rp_r"><option>Contenu dangereux ou violent</option><option>Arnaque ou faux article</option><option>Contenu sexuel</option><option>Harcèlement ou insultes</option><option>Autre</option></select>
+  <div class="row"><button class="btn" id="rp_go" style="flex:1">Envoyer le signalement</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
+  $('#rp_go').onclick=async()=>{
+    const{error}=await sb.from('reports').insert({reporter_id:S.me.id,target_type:k,target_id:String(id),reason:$('#rp_r').value});
+    closeModal();
+    if(error)return toast(/duplicate|unique/i.test(error.message)?'Vous avez déjà signalé ceci.':'Erreur : '+error.message);
+    toast('Merci, signalement envoyé ✅');
+  };
+}
+async function loadReportsAdmin(){
+  const box=$('#money');if(!box)return;
+  const{data}=await sb.from('reports').select('*').eq('status','pending').order('created_at'),l=data||[];
+  const pids=l.filter(r=>r.target_type==='post').map(r=>r.target_id),qids=l.filter(r=>r.target_type==='product').map(r=>r.target_id);
+  const[pp,qq]=await Promise.all([
+    pids.length?sb.from('posts').select('id,content,image_url,video_url,user_id').in('id',pids):{data:[]},
+    qids.length?sb.from('products').select('id,name,description,image_url,user_id').in('id',qids):{data:[]}]);
+  const T={};
+  (pp.data||[]).forEach(x=>T['post'+x.id]=x);
+  (qq.data||[]).forEach(x=>T['product'+x.id]=x);
+  await getProfiles([...l.map(r=>r.reporter_id),...Object.values(T).map(x=>x.user_id)]);
+  box.insertAdjacentHTML('beforeend',`<h4>Signalements (${l.length})</h4>`+(l.length?l.map(r=>{
+    const t=T[r.target_type+r.target_id];
+    const txt=t?(t.content||t.name||(t.video_url?'(vidéo)':t.image_url?'(photo)':'')):'(déjà supprimé)';
+    return`<div class="set" style="flex-wrap:wrap;gap:8px"><div style="flex:1;min-width:0"><b>${r.target_type==='post'?'Publication':'Article'}${t?' de '+esc(name(S.cache[t.user_id])):''}</b><div class="muted">Motif : ${esc(r.reason||'')} · signalé par ${esc(name(S.cache[r.reporter_id]))}</div><div class="pt" style="font-size:14px;margin-top:4px">${esc(txt)}</div>${t&&t.image_url?`<img src="${esc(t.image_url)}" style="width:80px;border-radius:8px;margin-top:4px" alt="">`:''}</div><div class="row"><button class="btn red sm" data-act="rpdel" data-id="${r.id}">Supprimer</button><button class="btn sec sm" data-act="rpok" data-id="${r.id}">Ignorer</button></div></div>`}).join(''):'<div class="muted">Aucun signalement.</div>'));
+}
+async function decideReport(id,remove){
+  if(remove&&!confirm('Supprimer ce contenu définitivement ?'))return;
+  const{error}=await sb.rpc('admin_decide_report',{p_id:id,p_remove:remove});
+  if(error)return toast(errMsg(error));
+  toast(remove?'Contenu supprimé ✅':'Signalement ignoré');loadAdminMoney();
 }
 
 /* ---------- PUBLICITÉS ---------- */
@@ -787,7 +845,7 @@ async function adForm(){
   <div class="row" style="margin-top:8px"><button class="btn" id="ad_go" style="flex:1">Envoyer</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#ad_i').onchange=e=>$('#ad_in').textContent=e.target.files[0]?.name?.slice(0,22)||'';
   $('#ad_go').onclick=async()=>{
-    const t=$('#ad_t').value.trim(),l=$('#ad_l').value.trim(),b=$('#ad_go');
+    const t=$('#ad_t').value.trim(),l=$('#ad_l').value.trim(),b=$('#ad_go');if(guard(t,$('#ad_x').value))return;
     if(!t)return toast('Donnez un titre à votre pub.');
     if(!adUrl(l))return toast('Indiquez un numéro WhatsApp ou un lien qui commence par http.');
     const d=parseInt(document.querySelector('input[name=ad_d]:checked').value);
@@ -815,7 +873,7 @@ async function decideAd(id,ok){
 }
 
 /* ---------- argent (administrateur) ---------- */
-async function loadAdminMoney(){await loadAdminMoney0();await loadCommissionsAdmin();await loadRewardsAdmin();await loadPremiumAdmin();await loadAdsAdmin()}
+async function loadAdminMoney(){await loadAdminMoney0();await loadCommissionsAdmin();await loadRewardsAdmin();await loadPremiumAdmin();await loadAdsAdmin();await loadReportsAdmin()}
 async function commissionModal(id){const[c,r]=await Promise.all([cfg(),sb.from('sales').select('*').eq('product_id',id).eq('status','due').order('created_at',{ascending:false}).limit(1)]),s=(r.data||[])[0];
   if(!s)return;modal(`<h3>✅ Article vendu</h3><p>Ta commission de ${esc(c.shop_commission||10)} % est de <b>${money(s.commission)} ${esc(s.currency||'FCFA')}</b>.</p><p class="muted">Envoie-la par ${esc(c.pay_info)}${c.pay_number?' au <b>'+esc(c.pay_number)+'</b>':''}. Elle est marquée payée dès que l'administrateur l'a reçue.</p><button class="btn" style="width:100%" onclick="closeModal()">OK</button>`)}
 async function commissionBanner(){const{data}=await sb.from('sales').select('*').eq('seller_id',S.me.id).eq('status','due'),l=data||[];if(!l.length||S.tab!=='shop')return;
@@ -864,7 +922,7 @@ async function paySet(){
   };
 }
 function aboutModal(){
-  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.2</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
+  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.3</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
 }
 const lsw=(k,label,sub,def='1')=>`<div class="set"><div><b>${label}</b>${sub?`<div class="muted">${sub}</div>`:''}</div><button class="sw ${LS.get(k,def)==='1'?'on':''}" data-act="lsw" data-id="${k}"></button></div>`;
 
@@ -915,7 +973,7 @@ async function vReglages(){
   <div class="card"><h4>Vidéos</h4>${lsw('u_autoplay','Lecture automatique','Les vidéos démarrent en défilant, sans le son')}</div>
   <div class="card"><h4>Boutique</h4><div class="set" data-act="myshop" style="cursor:pointer"><b>🏪 Ma boutique</b><span>›</span></div></div>
   <div class="card"><h4>Sécurité</h4><div class="set" data-act="logoutall" style="cursor:pointer"><b>📱 Se déconnecter de tous les appareils</b><span>›</span></div></div>
-  <div class="card"><h4>Aide</h4><div class="set" data-act="about" style="cursor:pointer"><b>ℹ️ À propos d'Urbain</b><span>›</span></div></div>
+  <div class="card"><h4>Aide</h4><div class="set" data-act="rules" style="cursor:pointer"><b>📜 Règles de la communauté</b><span>›</span></div><div class="set" data-act="about" style="cursor:pointer"><b>ℹ️ À propos d'Urbain</b><span>›</span></div></div>
   ${adm?`<div class="card"><h4>💰 Revenus et boosts (administrateur)</h4><div id="money"><div class="muted">Chargement…</div></div></div>`:''}
   <div class="card"><button class="btn red" style="width:100%" data-act="logout">Se déconnecter</button></div>`;
   if(adm)loadAdminMoney();premiumCard();adsCard();
@@ -938,7 +996,7 @@ function newPost(){
   <div class="row" style="margin-top:14px"><button class="btn" id="np_go" style="flex:1">Publier</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#np_f').onchange=e=>$('#np_n').textContent=e.target.files[0]?.name?.slice(0,22)||'';
   $('#np_go').onclick=async()=>{
-    const t=$('#np_t').value.trim(),f=$('#np_f').files[0],b=$('#np_go');
+    const t=$('#np_t').value.trim(),f=$('#np_f').files[0],b=$('#np_go');if(guard(t))return;
     if(!t&&!f)return toast('Écrivez quelque chose ou ajoutez un média.');
     b.disabled=true;b.textContent='Envoi…';
     try{
@@ -953,7 +1011,7 @@ function newNote(){
   modal(`<h3>Votre note</h3><p class="muted" style="margin-top:0">Une phrase courte visible par vos amis pendant 24 h.</p><input type="text" id="nn_t" maxlength="60" placeholder="Partagez une pensée…">
   <div class="row"><button class="btn" id="nn_go" style="flex:1">Partager</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#nn_go').onclick=async()=>{
-    const t=$('#nn_t').value.trim();if(!t)return toast('Écrivez votre note.');
+    const t=$('#nn_t').value.trim();if(!t)return toast('Écrivez votre note.');if(guard(t))return;
     const b=$('#nn_go');b.disabled=true;
     await sb.from('notes').delete().eq('user_id',S.me.id);
     const{error}=await sb.from('notes').insert({user_id:S.me.id,content:t});
@@ -1417,6 +1475,10 @@ document.addEventListener('click',async e=>{
    case'adclick':return adClick(id);
    case'adok':return decideAd(id,true);
    case'adno':return decideAd(id,false);
+   case'report':return reportModal(id,el.dataset.k);
+   case'rpdel':return decideReport(id,true);
+   case'rpok':return decideReport(id,false);
+   case'rules':return rulesModal();
    case'pok':return decidePremium(id,true);
    case'pno':return decidePremium(id,false);
    case'logout':clearInterval(S.hb);if(S.rt)sb.removeChannel(S.rt);await sb.auth.signOut();return
