@@ -389,20 +389,20 @@ async function loadPosts(uid,vid){
     (l.data||[]).forEach(x=>(S.likes[x.post_id]??=[]).push(x.user_id));
     (c.data||[]).forEach(x=>S.coms[x.post_id]=(S.coms[x.post_id]||0)+1);
   }
-  await getProfiles(S.posts.map(p=>p.user_id));
+  await getProfiles(S.posts.map(p=>p.user_id));await loadAds();
   renderPosts();
 }
 function renderPosts(){
   const box=$('#posts');if(!box)return;
   if(!S.posts.length){box.innerHTML='<div class="empty">Aucune publication pour le moment.</div>';return}
-  box.innerHTML=S.posts.map(p=>{
+  S.adShown=new Set();const AD=adsFor();let adn=0;box.innerHTML=S.posts.map((p,ix)=>{
     const u=S.cache[p.user_id],lk=S.likes[p.id]||[],mine=lk.includes(S.me.id);
     return`<div class="card" id="p_${p.id}"><div class="ph" data-act="profil" data-id="${p.user_id}">${av(u,42)}<div style="flex:1"><b>${esc(name(u))}</b><span class="muted">${ago(p.created_at)}</span></div>${p.user_id===S.me.id?`<button class="btn sec sm" data-act="delpost" data-id="${p.id}">🗑</button>`:''}</div>
     ${p.content?`<div class="pt">${esc(p.content)}</div>`:''}
     <div class="pm">${p.image_url?`<img src="${esc(p.image_url)}" loading="lazy" alt="">`:''}${p.video_url?`<video src="${esc(p.video_url)}" controls playsinline preload="metadata"></video>`:''}</div>
     <div class="muted" style="margin-top:8px">${lk.length?`👍 ${lk.length}`:''}${S.coms[p.id]?` · ${S.coms[p.id]} commentaire(s)`:''}</div>
     <div class="acts"><button class="${mine?'on':''}" data-act="like" data-id="${p.id}">👍 J'aime</button><button data-act="coms" data-id="${p.id}">💬 Commenter</button></div>
-    <div id="c_${p.id}" hidden></div></div>`}).join('');
+    <div id="c_${p.id}" hidden></div></div>`+(((ix+1)%5===0)?adCard(AD,adn++):'')}).join('');adSeen();
   if(S.tab==='videos')watchVideos();
 }
 async function toggleLike(id){
@@ -588,7 +588,7 @@ async function refStats(){
   el.textContent=`${data.invited} ami(s) invité(s) · ${data.earned} ont acheté · ${data.coins} jetons gagnés`}
 async function cfg(){
   if(S.cfg&&Date.now()-(S.cfgT||0)<60000)return S.cfg;
-  const c={boost_price:'500',pay_number:'',pay_info:'Mobile Money',coin_rate:'10',game_cost:'5',welcome_coins:'10'};
+  const c={boost_price:'500',ad_price:'200',pay_number:'',pay_info:'Mobile Money',coin_rate:'10',game_cost:'5',welcome_coins:'10'};
   const{data}=await sb.from('app_config').select('*');(data||[]).forEach(r=>c[r.key]=r.value);
   S.cfg=c;S.cfgT=Date.now();return c;
 }
@@ -714,8 +714,99 @@ async function boostModal(id){
   };
 }
 
+/* ---------- PUBLICITÉS ---------- */
+async function loadAds(){
+  if(S.adsT&&Date.now()-S.adsT<60000)return;
+  try{
+    const{data,error}=await sb.from('ads').select('*').eq('status','approved').gt('ends_at',new Date().toISOString()).limit(50);
+    if(!error){S.ads=data||[];S.adsT=Date.now()}
+  }catch(e){}
+}
+function adsFor(){
+  if(!['fil','videos'].includes(S.tab))return[];
+  if(S.vip&&S.vip.has(S.me.id))return[];
+  return(S.ads||[]).filter(a=>new Date(a.ends_at)>new Date());
+}
+function adUrl(l){
+  l=String(l||'').trim();
+  if(/^https?:\/\//i.test(l))return l;
+  const d=l.replace(/\D/g,'');
+  return d.length>=8?'https://wa.me/'+d:'';
+}
+function adCard(list,n){
+  if(!list.length)return'';
+  S.adOff??=Math.floor(Math.random()*1000);
+  const a=list[(n+S.adOff)%list.length];
+  if(a.user_id!==S.me.id)S.adShown.add(a.id);
+  return`<div class="card" style="border:1px solid #f5a623"><div style="margin-bottom:6px"><i class="spons" style="position:static;display:inline-block">📢 Publicité</i></div>
+  ${a.image_url?`<img src="${esc(a.image_url)}" style="width:100%;border-radius:10px;max-height:300px;object-fit:cover" loading="lazy" alt="">`:''}
+  <b style="display:block;margin-top:6px;font-size:17px">${esc(a.title)}</b>
+  ${a.content?`<div class="pt">${esc(a.content)}</div>`:''}
+  ${adUrl(a.link)?`<button class="btn" style="width:100%;margin-top:8px" data-act="adclick" data-id="${a.id}">En savoir plus</button>`:''}</div>`;
+}
+function adSeen(){
+  S.adSeen??=new Set();
+  S.adShown.forEach(id=>{
+    if(S.adSeen.has(id))return;
+    S.adSeen.add(id);
+    sb.rpc('ad_view',{p_id:id}).then(()=>{});
+  });
+}
+function adClick(id){
+  const a=(S.ads||[]).find(x=>String(x.id)===String(id));if(!a)return;
+  const u=adUrl(a.link);if(!u)return;
+  if(a.user_id!==S.me.id)sb.rpc('ad_click',{p_id:a.id}).then(()=>{});
+  window.open(u,'_blank','noopener');
+}
+async function adsCard(){
+  const box=$('#adscard');if(!box)return;
+  const[c,r]=await Promise.all([cfg(),sb.from('ads').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(10)]);
+  if(r.error){box.innerHTML='<h4>📢 Faire ma publicité</h4><div class="muted">Bientôt disponible.</div>';return}
+  const st={pending:'⏳ en attente de validation',approved:'✅ en ligne',rejected:'❌ refusée'};
+  box.innerHTML=`<h4>📢 Faire ma publicité</h4><div class="muted" style="margin-bottom:8px">Votre pub s'affiche toutes les 5 publications, dans le fil et les vidéos. ${money(c.ad_price||200)} FCFA par jour.</div>`
+  +(r.data||[]).map(a=>`<div class="set"><div><b>${esc(a.title)}</b><div class="muted">${a.days} j · ${money(a.amount)} FCFA · ${st[a.status]||esc(a.status)}${a.status==='approved'?` · jusqu'au ${new Date(a.ends_at).toLocaleDateString('fr-FR')} · 👁 ${a.impressions||0} · 👆 ${a.clicks||0}`:''}</div></div></div>`).join('')
+  +`<button class="btn" style="width:100%;margin-top:8px" data-act="newad">+ Créer une pub</button>`;
+}
+async function adForm(){
+  const c=await cfg(),price=parseInt(c.ad_price)||200;
+  modal(`<h3>📢 Ma publicité</h3><p class="muted" style="margin-top:0">Elle s'affiche toutes les 5 publications dans le fil et les vidéos, dès que votre paiement est vérifié.</p>
+  <input type="text" id="ad_t" placeholder="Titre (ex. Robes à Cotonou)" maxlength="60">
+  <textarea id="ad_x" placeholder="Texte de la pub (facultatif)" maxlength="200"></textarea>
+  <input type="text" id="ad_l" placeholder="Votre numéro WhatsApp (22997000000) ou lien du site">
+  <div class="row"><label class="filebtn">📷 Image<input type="file" id="ad_i" accept="image/*" hidden></label><span class="muted" id="ad_in"></span></div>
+  ${[1,3,7].map((d,i)=>`<label class="plusrow" style="justify-content:space-between;margin-top:8px"><span style="font-size:16px"><input type="radio" name="ad_d" value="${d}" ${i===1?'checked':''}> ${d} jour${d>1?'s':''}</span><span style="font-size:16px">${money(d*price)} FCFA</span></label>`).join('')}
+  <div class="row" style="margin-top:8px"><button class="btn" id="ad_go" style="flex:1">Envoyer</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
+  $('#ad_i').onchange=e=>$('#ad_in').textContent=e.target.files[0]?.name?.slice(0,22)||'';
+  $('#ad_go').onclick=async()=>{
+    const t=$('#ad_t').value.trim(),l=$('#ad_l').value.trim(),b=$('#ad_go');
+    if(!t)return toast('Donnez un titre à votre pub.');
+    if(!adUrl(l))return toast('Indiquez un numéro WhatsApp ou un lien qui commence par http.');
+    const d=parseInt(document.querySelector('input[name=ad_d]:checked').value);
+    b.disabled=true;b.textContent='Envoi…';
+    try{
+      const row={user_id:S.me.id,title:t,content:$('#ad_x').value.trim()||null,link:l,days:d,amount:d*price,status:'pending'};
+      const f=$('#ad_i').files[0];if(f)row.image_url=await upload(f);
+      const{error}=await sb.from('ads').insert(row);if(error)throw error;
+      const sh=$('#modal .sheet');
+      if(sh)sh.innerHTML=`<h3>Demande envoyée ✅</h3><p>Payez <b>${money(d*price)} FCFA</b> ${c.pay_number?`par ${esc(c.pay_info)} au <b>${esc(c.pay_number)}</b>`:"à l'administrateur par Mobile Money"}.</p><p class="muted">Votre pub démarre dès que le paiement est vérifié.</p><button class="btn" style="width:100%" onclick="closeModal()">OK</button>`;
+      if(S.tab==='reglages')adsCard();
+    }catch(e){toast('Erreur : '+(e.message||e));b.disabled=false;b.textContent='Envoyer'}
+  };
+}
+async function loadAdsAdmin(){
+  const box=$('#money');if(!box)return;
+  const{data}=await sb.from('ads').select('*').eq('status','pending').order('created_at'),l=data||[];
+  await getProfiles(l.map(r=>r.user_id));
+  box.insertAdjacentHTML('beforeend',`<h4>Pubs à valider (${l.length})</h4>`+(l.length?l.map(a=>`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(a.title)}</b><div class="muted">${esc(name(S.cache[a.user_id]))} · ${a.days} j · ${money(a.amount)} FCFA · ${esc(a.link||'')}</div>${a.content?`<div class="muted">${esc(a.content)}</div>`:''}${a.image_url?`<img src="${esc(a.image_url)}" style="width:80px;border-radius:8px;margin-top:4px" alt="">`:''}</div><div class="row"><button class="btn sm" data-act="adok" data-id="${a.id}">Valider</button><button class="btn sec sm" data-act="adno" data-id="${a.id}">Refuser</button></div></div>`).join(''):'<div class="muted">Aucune pub en attente.</div>'));
+}
+async function decideAd(id,ok){
+  const{error}=await sb.rpc('admin_decide_ad',{p_id:id,p_ok:ok});
+  if(error)return toast(errMsg(error));
+  S.adsT=0;toast(ok?'Pub activée ✅':'Pub refusée');loadAdminMoney();
+}
+
 /* ---------- argent (administrateur) ---------- */
-async function loadAdminMoney(){await loadAdminMoney0();await loadCommissionsAdmin();await loadRewardsAdmin();await loadPremiumAdmin()}
+async function loadAdminMoney(){await loadAdminMoney0();await loadCommissionsAdmin();await loadRewardsAdmin();await loadPremiumAdmin();await loadAdsAdmin()}
 async function commissionModal(id){const[c,r]=await Promise.all([cfg(),sb.from('sales').select('*').eq('product_id',id).eq('status','due').order('created_at',{ascending:false}).limit(1)]),s=(r.data||[])[0];
   if(!s)return;modal(`<h3>✅ Article vendu</h3><p>Ta commission de ${esc(c.shop_commission||10)} % est de <b>${money(s.commission)} ${esc(s.currency||'FCFA')}</b>.</p><p class="muted">Envoie-la par ${esc(c.pay_info)}${c.pay_number?' au <b>'+esc(c.pay_number)+'</b>':''}. Elle est marquée payée dès que l'administrateur l'a reçue.</p><button class="btn" style="width:100%" onclick="closeModal()">OK</button>`)}
 async function commissionBanner(){const{data}=await sb.from('sales').select('*').eq('seller_id',S.me.id).eq('status','due'),l=data||[];if(!l.length||S.tab!=='shop')return;
@@ -728,17 +819,17 @@ async function loadCommissionsAdmin(){const box=$('#money');if(!box)return;
 async function confirmCommission(id){const{error}=await sb.rpc('admin_confirm_commission',{p_id:id});if(error)return toast(errMsg(error));toast('Commission encaissée ✅');loadAdminMoney()}
 async function loadAdminMoney0(){
   const box=$('#money');if(!box)return;
-  const[{data:br},{data:cr},{data:pr},c]=await Promise.all([sb.from('boost_requests').select('*').order('created_at',{ascending:false}).limit(150),sb.from('coin_requests').select('*').order('created_at',{ascending:false}).limit(150),sb.from('premium_requests').select('*').eq('status','approved').order('created_at',{ascending:false}).limit(150),cfg()]);
+  const[{data:br},{data:cr},{data:pr},c,{data:ar}]=await Promise.all([sb.from('boost_requests').select('*').order('created_at',{ascending:false}).limit(150),sb.from('coin_requests').select('*').order('created_at',{ascending:false}).limit(150),sb.from('premium_requests').select('*').eq('status','approved').order('created_at',{ascending:false}).limit(150),cfg(),sb.from('ads').select('amount,decided_at,created_at').eq('status','approved').limit(300)]);
   const list=br||[],ok=list.filter(b=>b.status==='approved'),pend=list.filter(b=>b.status==='pending');
   const cok=(cr||[]).filter(r=>r.status==='approved'),cpend=(cr||[]).filter(r=>r.status==='pending');
   await getProfiles(cpend.map(r=>r.user_id));
   const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);
   const sum=(a,d)=>a.filter(x=>!d||new Date(x.decided_at||x.created_at)>=d).reduce((s,x)=>s+x.amount,0);
-  const pok=pr||[],tot=sum(ok)+sum(cok)+sum(pok),mon=sum(ok,m0)+sum(cok,m0)+sum(pok,m0),monC=sum(cok,m0),monP=sum(pok,m0);
+  const pok=pr||[],aok=ar||[],tot=sum(ok)+sum(cok)+sum(pok)+sum(aok),mon=sum(ok,m0)+sum(cok,m0)+sum(pok,m0)+sum(aok,m0),monC=sum(cok,m0),monP=sum(pok,m0);
   const pn={};
   if(pend.length){const{data}=await sb.from('products').select('id,name,user_id').in('id',[...new Set(pend.map(b=>b.product_id))]);(data||[]).forEach(p=>pn[String(p.id)]=p);await getProfiles((data||[]).map(p=>p.user_id))}
   box.innerHTML=`<div class="set"><div><b>Revenus du mois</b><div class="muted">Total depuis le début : ${money(tot)} FCFA · dont jetons ce mois : ${money(monC)} FCFA · Premium : ${money(monP)} FCFA</div></div><b style="font-size:20px;color:var(--pr)">${money(mon)} FCFA</b></div>
-  <div class="set"><div><b>Tarifs et paiement</b><div class="muted">Boost : ${money(c.boost_price)} FCFA/jour · Jeton : ${money(c.coin_rate)} FCFA · Partie : ${money(c.game_cost)} jetons/joueur · Offerts à l'inscription : ${money(c.welcome_coins)} · Premium : ${money(c.premium_price||500)} FCFA/mois (+${money(c.premium_coins||30)} jetons) · Parrainage : ${money(c.referral_coins||5)} jetons<br>${esc(c.pay_info)} ${c.pay_number?esc(c.pay_number):'(numéro non renseigné)'}</div></div><button class="btn sec sm" data-act="payset">Modifier</button></div>
+  <div class="set"><div><b>Tarifs et paiement</b><div class="muted">Boost : ${money(c.boost_price)} FCFA/jour · Jeton : ${money(c.coin_rate)} FCFA · Partie : ${money(c.game_cost)} jetons/joueur · Offerts à l'inscription : ${money(c.welcome_coins)} · Premium : ${money(c.premium_price||500)} FCFA/mois (+${money(c.premium_coins||30)} jetons) · Parrainage : ${money(c.referral_coins||5)} jetons · Pub : ${money(c.ad_price||200)} FCFA/jour<br>${esc(c.pay_info)} ${c.pay_number?esc(c.pay_number):'(numéro non renseigné)'}</div></div><button class="btn sec sm" data-act="payset">Modifier</button></div>
   <h4>Jetons à valider (${cpend.length})</h4>${cpend.length?cpend.map(r=>`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(name(S.cache[r.user_id]))}</b><div class="muted">${r.coins} jetons · ${money(r.amount)} FCFA</div></div><div class="row"><button class="btn sm" data-act="cok" data-id="${r.id}">Valider</button><button class="btn sec sm" data-act="cno" data-id="${r.id}">Refuser</button></div></div>`).join(''):'<div class="muted">Aucune demande en attente.</div>'}
   <h4>Boosts à valider (${pend.length})</h4>${pend.length?pend.map(b=>{const p=pn[b.product_id];return`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(p?.name||'Article supprimé')}</b><div class="muted">${esc(name(S.cache[p?.user_id]))} · ${b.days} j · ${money(b.amount)} FCFA</div></div><div class="row"><button class="btn sm" data-act="bokok" data-id="${b.id}">Valider</button><button class="btn sec sm" data-act="bokno" data-id="${b.id}">Refuser</button></div></div>`}).join(''):'<div class="muted">Aucune demande en attente.</div>'}`;
 }
@@ -754,17 +845,17 @@ async function approveBoost(id){
 }
 async function paySet(){
   const c=await cfg();
-  modal(`<h3>Tarifs et paiement</h3><input type="number" id="c_cr" placeholder="Prix d'un jeton (FCFA)" inputmode="numeric" value="${esc(c.coin_rate)}"><input type="number" id="c_gc" placeholder="Jetons par partie et par joueur" inputmode="numeric" value="${esc(c.game_cost)}"><input type="number" id="c_wc" placeholder="Jetons offerts à l'inscription" inputmode="numeric" value="${esc(c.welcome_coins)}"><input type="number" id="c_p" placeholder="Prix d'un boost par jour (FCFA)" inputmode="numeric" value="${esc(c.boost_price)}"><input type="number" id="c_pp" placeholder="Prix du Premium par mois (FCFA)" inputmode="numeric" value="${esc(c.premium_price||500)}"><input type="number" id="c_pc" placeholder="Jetons offerts chaque mois aux Premium" inputmode="numeric" value="${esc(c.premium_coins||30)}"><input type="number" id="c_rc" placeholder="Jetons gagnés par ami invité qui achète" inputmode="numeric" value="${esc(c.referral_coins||5)}"><input type="text" id="c_i" placeholder="Moyen (ex. MTN MoMo)" value="${esc(c.pay_info)}"><input type="text" id="c_n" placeholder="Votre numéro Mobile Money" inputmode="tel" value="${esc(c.pay_number)}">
+  modal(`<h3>Tarifs et paiement</h3><input type="number" id="c_cr" placeholder="Prix d'un jeton (FCFA)" inputmode="numeric" value="${esc(c.coin_rate)}"><input type="number" id="c_gc" placeholder="Jetons par partie et par joueur" inputmode="numeric" value="${esc(c.game_cost)}"><input type="number" id="c_wc" placeholder="Jetons offerts à l'inscription" inputmode="numeric" value="${esc(c.welcome_coins)}"><input type="number" id="c_p" placeholder="Prix d'un boost par jour (FCFA)" inputmode="numeric" value="${esc(c.boost_price)}"><input type="number" id="c_pp" placeholder="Prix du Premium par mois (FCFA)" inputmode="numeric" value="${esc(c.premium_price||500)}"><input type="number" id="c_pc" placeholder="Jetons offerts chaque mois aux Premium" inputmode="numeric" value="${esc(c.premium_coins||30)}"><input type="number" id="c_rc" placeholder="Jetons gagnés par ami invité qui achète" inputmode="numeric" value="${esc(c.referral_coins||5)}"><input type="number" id="c_ad" placeholder="Prix d'une pub par jour (FCFA)" inputmode="numeric" value="${esc(c.ad_price||200)}"><input type="text" id="c_i" placeholder="Moyen (ex. MTN MoMo)" value="${esc(c.pay_info)}"><input type="text" id="c_n" placeholder="Votre numéro Mobile Money" inputmode="tel" value="${esc(c.pay_number)}">
   <div class="row"><button class="btn" id="c_go" style="flex:1">Enregistrer</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#c_go').onclick=async()=>{
     const nn=(id,d)=>{const x=parseInt($(id).value);return String(Number.isFinite(x)&&x>=0?x:d)};
-    const rows=[['coin_rate',String(Math.max(1,parseInt($('#c_cr').value)||10))],['game_cost',nn('#c_gc',5)],['welcome_coins',nn('#c_wc',10)],['boost_price',String(parseInt($('#c_p').value)||500)],['premium_price',String(Math.max(1,parseInt($('#c_pp').value)||500))],['premium_coins',nn('#c_pc',30)],['referral_coins',nn('#c_rc',5)],['pay_info',$('#c_i').value.trim()||'Mobile Money'],['pay_number',$('#c_n').value.trim()]].map(([key,value])=>({key,value,updated_at:new Date().toISOString()}));
+    const rows=[['coin_rate',String(Math.max(1,parseInt($('#c_cr').value)||10))],['game_cost',nn('#c_gc',5)],['welcome_coins',nn('#c_wc',10)],['boost_price',String(parseInt($('#c_p').value)||500)],['premium_price',String(Math.max(1,parseInt($('#c_pp').value)||500))],['premium_coins',nn('#c_pc',30)],['referral_coins',nn('#c_rc',5)],['ad_price',String(Math.max(1,parseInt($('#c_ad').value)||200))],['pay_info',$('#c_i').value.trim()||'Mobile Money'],['pay_number',$('#c_n').value.trim()]].map(([key,value])=>({key,value,updated_at:new Date().toISOString()}));
     const{error}=await sb.from('app_config').upsert(rows);if(error)return toast('Erreur : '+error.message);
     S.cfg=null;closeModal();toast('Enregistré ✅');loadAdminMoney();
   };
 }
 function aboutModal(){
-  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.0</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis, sur invitation.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
+  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.1</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis, sur invitation.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
 }
 const lsw=(k,label,sub,def='1')=>`<div class="set"><div><b>${label}</b>${sub?`<div class="muted">${sub}</div>`:''}</div><button class="sw ${LS.get(k,def)==='1'?'on':''}" data-act="lsw" data-id="${k}"></button></div>`;
 
@@ -808,6 +899,7 @@ async function vReglages(){
   <div class="li" data-act="editprofile">${av(S.profile,46)}<div class="gr"><b>${esc(name(S.profile))}</b><span>${esc(S.me.email||'')}</span></div><span>›</span></div>
   <div class="set" data-act="chpass" style="cursor:pointer"><b>🔑 Changer le mot de passe</b><span>›</span></div></div>
   <div class="card" id="premcard"><h4>👑 Urbain Premium</h4><div class="muted">Chargement…</div></div>
+  <div class="card" id="adscard"><h4>📢 Faire ma publicité</h4><div class="muted">Chargement…</div></div>
   <div class="card"><h4>Notifications</h4>${sw('notify_likes','J\'aime')}${sw('notify_comments','Commentaires')}${sw('notify_friend_requests','Demandes d\'amis')}${sw('notify_messages','Messages')}</div>
   <div class="card"><h4>Confidentialité</h4>${sw('show_online','Afficher quand je suis en ligne','Vos amis voient le point vert')}</div>
   <div class="card"><h4>Apparence</h4>${sw('dark_mode','Mode sombre')}<div class="set"><b>Taille du texte</b><div class="row">${[['14px','A−'],['16px','A'],['18px','A+']].map(([s,l])=>`<button class="btn sm ${LS.get('u_font','16px')===s?'':'sec'}" data-act="font" data-id="${s}">${l}</button>`).join('')}</div></div></div>
@@ -817,7 +909,7 @@ async function vReglages(){
   <div class="card"><h4>Aide</h4><div class="set" data-act="about" style="cursor:pointer"><b>ℹ️ À propos d'Urbain</b><span>›</span></div></div>
   ${adm?`<div class="card"><h4>💰 Revenus et boosts (administrateur)</h4><div id="money"><div class="muted">Chargement…</div></div></div>`:''}
   <div class="card"><button class="btn red" style="width:100%" data-act="logout">Se déconnecter</button></div>`;
-  if(adm)loadAdminMoney();premiumCard();
+  if(adm)loadAdminMoney();premiumCard();adsCard();
 }
 /* ---------- bouton + : story, publication, note ---------- */
 function plusMenu(){
@@ -828,6 +920,7 @@ function plusMenu(){
   <div class="plusrow" data-act="addstory"><span>📖</span>Story (24 h)</div>
   <div class="plusrow" data-act="newpost"><span>📝</span>Publication</div>
   <div class="plusrow" data-act="newnote"><span>💭</span>Note (courte, 24 h)</div>
+  <div class="plusrow" data-act="newad"><span>📢</span>Faire ma pub</div>
   <button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
 }
 function newPost(){
@@ -1311,6 +1404,10 @@ document.addEventListener('click',async e=>{
    case'cok':return decideCoins(id,true);
    case'cno':return decideCoins(id,false);
    case'premreq':return requestPremium();
+   case'newad':closeModal();return adForm();
+   case'adclick':return adClick(id);
+   case'adok':return decideAd(id,true);
+   case'adno':return decideAd(id,false);
    case'pok':return decidePremium(id,true);
    case'pno':return decidePremium(id,false);
    case'logout':clearInterval(S.hb);if(S.rt)sb.removeChannel(S.rt);await sb.auth.signOut();return
