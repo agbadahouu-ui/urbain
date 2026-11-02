@@ -10,15 +10,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Urbain">
 <title>Urbain</title>
-<meta name="description" content="Urbain : publications, stories, messages vocaux, jeux à 2 en ligne, boutique et cadeaux. Inscription gratuite.">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="Urbain">
-<meta property="og:title" content="Urbain : retrouve tes amis, joue et gagne des cadeaux">
-<meta property="og:description" content="Publications, stories, messages vocaux, jeux à 2 en ligne (Ludo, Penalty...), boutique. Crée ton compte gratuitement en 1 minute.">
-<meta property="og:url" content="https://agbadahouu-ui.github.io/urbain/">
-<meta property="og:image" content="https://agbadahouu-ui.github.io/urbain/icon-512.png">
-<meta property="og:locale" content="fr_FR">
-<meta name="twitter:card" content="summary">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--bg:#f0f2f5;--card:#fff;--tx:#1c1e21;--mu:#65676b;--pr:#1877f2;--bd:#dddfe2;--soft:#e4e6eb;--red:#e41e3f}
@@ -144,8 +135,8 @@ const S={me:null,profile:null,settings:null,cache:{},fr:[],tab:'fil',filter:'all
 
 /* ---------- utilitaires ---------- */
 function toast(m){let t=$('#toast');if(t)t.remove();t=document.createElement('div');t.id='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2600)}
-function errMsg(e){const m=String(e?.message||e||'');return /POINTS_INSUFFISANTS/.test(m)?'Jetons insuffisants.':/COMMISSION_IMPAYEE/.test(m)?'Paie d\'abord ta commission de vente pour publier un nouvel article.':'Erreur : '+m}
-function name(p){const n=p?.full_name||p?.username||'Utilisateur';return p&&S.vip&&S.vip.has(p.id)?n+' 👑':n}
+function errMsg(e){const m=String(e?.message||e||'');return /POINTS_INSUFFISANTS/.test(m)?'Jetons insuffisants.':'Erreur : '+m}
+function name(p){return p?.full_name||p?.username||'Utilisateur'}
 function av(p,s=40){const n=name(p);return p?.avatar_url?`<img class="av" style="width:${s}px;height:${s}px" src="${esc(p.avatar_url)}" alt="">`:`<span class="av ini" style="width:${s}px;height:${s}px;font-size:${Math.round(s*.4)}px">${esc(n.slice(0,1).toUpperCase())}</span>`}
 function ago(d){const s=(Date.now()-new Date(d))/1000;if(s<60)return"à l'instant";if(s<3600)return Math.floor(s/60)+' min';if(s<86400)return Math.floor(s/3600)+' h';if(s<604800)return Math.floor(s/86400)+' j';return new Date(d).toLocaleDateString('fr-FR')}
 function hm(d){return new Date(d).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}
@@ -164,12 +155,10 @@ function authScreen(mode=QAMI?'up':'in'){
   ${mode==='up'?'<input type="text" id="a_n" placeholder="Nom complet" autocomplete="name">':''}
   <input type="email" id="a_e" placeholder="Adresse e-mail" autocomplete="email">
   <input type="password" id="a_p" placeholder="Mot de passe (6 caractères min.)" autocomplete="${mode==='up'?'new-password':'current-password'}">
-  ${mode==='up'?`<label class="muted" style="display:flex;gap:8px;align-items:flex-start;margin:0 0 10px"><input type="checkbox" id="a_r" style="width:auto;margin:3px 0 0"><span>J'accepte les <a href="#" id="a_rl" style="color:var(--pr);font-weight:700">règles de la communauté</a></span></label>`:''}
   <button class="btn" style="width:100%" id="a_go">${mode==='up'?'Créer mon compte':'Se connecter'}</button>
   <p class="muted" id="a_m" style="text-align:center;margin:10px 0 0"></p></div>
   <p style="text-align:center"><button class="btn sec" id="a_sw">${mode==='up'?'J\'ai déjà un compte':'Créer un compte'}</button></p></div>`;
   $('#a_sw').onclick=()=>authScreen(mode==='up'?'in':'up');
-  const rl=$('#a_rl');if(rl)rl.onclick=e=>{e.preventDefault();rulesModal()};
   $('#a_go').onclick=async()=>{
     const email=$('#a_e').value.trim(),password=$('#a_p').value,m=$('#a_m'),b=$('#a_go');
     if(!email||password.length<6){m.textContent='E-mail et mot de passe (6 caractères min.) requis.';return}
@@ -177,11 +166,12 @@ function authScreen(mode=QAMI?'up':'in'){
     if(mode==='up'){
       const full_name=$('#a_n').value.trim();
       if(!full_name){m.textContent='Votre nom est requis.';b.disabled=false;return}
-      if(!$('#a_r').checked){m.textContent='Acceptez les règles de la communauté pour continuer.';b.disabled=false;return}
       const{data,error}=await sb.auth.signUp({email,password,options:{data:{full_name}}});
       b.disabled=false;
       if(error){m.textContent=error.message;return}
-      if(!data.session){m.textContent='Compte créé. Vérifiez votre e-mail pour confirmer, puis connectez-vous.'}
+      if(!data.session){
+        const r=await sb.auth.signInWithPassword({email,password});
+        if(r.error)m.textContent='Compte créé. Vérifiez votre e-mail pour confirmer, puis connectez-vous.'}
     }else{
       const{error}=await sb.auth.signInWithPassword({email,password});
       b.disabled=false;
@@ -199,7 +189,7 @@ async function boot(user){
   let{data:st}=await sb.from('user_settings').select('*').eq('user_id',user.id).maybeSingle();
   if(!st){const r=await sb.from('user_settings').insert({user_id:user.id}).select().single();st=r.data||{}}
   S.settings=st;applyTheme();
-  await loadFriends();await loadVip().catch(()=>{});
+  await loadFriends();
   shell();go('fil');subscribe();refreshBadges();heartbeat();
   usePendingCode();
 }
@@ -286,8 +276,8 @@ async function showMyCode(regen){
   const{data,error}=await sb.rpc(regen?'regen_friend_code':'my_friend_code');
   if(error){box.textContent=errMsg(error);return}
   S.myCode=data;
-  const c=await cfg(),msg=encodeURIComponent(friendMsg(data));
-  box.innerHTML=`<div style="text-align:center;font-family:monospace;font-size:32px;letter-spacing:3px;font-weight:700;margin:6px 0;color:var(--tx)">${esc(data.slice(0,4)+'-'+data.slice(4))}</div><p class="muted" style="text-align:center;margin:0 0 10px">Envoyez ce code à un ami : dès qu'il le saisit, vous devenez amis et pouvez vous écrire.</p><p class="muted" style="text-align:center;margin:0 0 10px"><b>🎁 Gagnez ${esc(c.referral_coins||5)} jetons</b> dès que votre ami fait son premier achat de jetons ou son abonnement Premium.</p><div class="row"><button class="btn" data-act="copycode" style="flex:1">Copier</button><a class="btn" style="flex:1;text-align:center;background:#25d366;text-decoration:none" target="_blank" rel="noopener" href="https://wa.me/?text=${msg}">WhatsApp</a></div><div style="text-align:center;margin-top:8px"><button class="btn sec sm" data-act="regencode">Changer mon code</button></div><div id="refst" class="muted" style="text-align:center;margin-top:8px"></div>`;refStats();
+  const msg=encodeURIComponent(friendMsg(data));
+  box.innerHTML=`<div style="text-align:center;font-family:monospace;font-size:32px;letter-spacing:3px;font-weight:700;margin:6px 0;color:var(--tx)">${esc(data.slice(0,4)+'-'+data.slice(4))}</div><p class="muted" style="text-align:center;margin:0 0 10px">Envoyez ce code à un ami : dès qu'il le saisit, vous devenez amis et pouvez vous écrire.</p><div class="row"><button class="btn" data-act="copycode" style="flex:1">Copier</button><a class="btn" style="flex:1;text-align:center;background:#25d366;text-decoration:none" target="_blank" rel="noopener" href="https://wa.me/?text=${msg}">WhatsApp</a></div><div style="text-align:center;margin-top:8px"><button class="btn sec sm" data-act="regencode">Changer mon code</button></div>`;
 }
 async function amisList(q){
   const box=$('#amis');if(!box)return;
@@ -323,7 +313,7 @@ async function vFil(){
   loadNotes();loadStories();loadPosts();
 }
 async function publishPost(){
-  const t=$('#pt').value.trim(),f=$('#pf').files[0],b=$('#pub');if(guard(t))return;
+  const t=$('#pt').value.trim(),f=$('#pf').files[0],b=$('#pub');
   if(!t&&!f)return toast('Écrivez quelque chose ou ajoutez un média.');
   b.disabled=true;b.textContent='Envoi…';
   try{
@@ -351,7 +341,7 @@ function addStory(){
   <div class="row" style="margin-top:14px"><button class="btn" id="sgo" style="flex:1">Publier</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#sf').onchange=e=>$('#sfn').textContent=e.target.files[0]?.name?.slice(0,22)||'';
   $('#sgo').onclick=async()=>{
-    const t=$('#st').value.trim(),f=$('#sf').files[0],b=$('#sgo');if(guard(t))return;
+    const t=$('#st').value.trim(),f=$('#sf').files[0],b=$('#sgo');
     if(!t&&!f)return toast('Ajoutez du texte ou un média.');
     b.disabled=true;b.textContent='Envoi…';
     try{
@@ -401,20 +391,20 @@ async function loadPosts(uid,vid){
     (l.data||[]).forEach(x=>(S.likes[x.post_id]??=[]).push(x.user_id));
     (c.data||[]).forEach(x=>S.coms[x.post_id]=(S.coms[x.post_id]||0)+1);
   }
-  await getProfiles(S.posts.map(p=>p.user_id));await loadAds();
+  await getProfiles(S.posts.map(p=>p.user_id));
   renderPosts();
 }
 function renderPosts(){
   const box=$('#posts');if(!box)return;
   if(!S.posts.length){box.innerHTML='<div class="empty">Aucune publication pour le moment.</div>';return}
-  S.adShown=new Set();const AD=adsFor();let adn=0;box.innerHTML=S.posts.map((p,ix)=>{
+  box.innerHTML=S.posts.map(p=>{
     const u=S.cache[p.user_id],lk=S.likes[p.id]||[],mine=lk.includes(S.me.id);
-    return`<div class="card" id="p_${p.id}"><div class="ph" data-act="profil" data-id="${p.user_id}">${av(u,42)}<div style="flex:1"><b>${esc(name(u))}</b><span class="muted">${ago(p.created_at)}</span></div>${p.user_id===S.me.id?`<button class="btn sec sm" data-act="delpost" data-id="${p.id}">🗑</button>`:`<button class="btn sec sm" data-act="report" data-id="${p.id}" data-k="post">🚩</button>`}</div>
+    return`<div class="card" id="p_${p.id}"><div class="ph" data-act="profil" data-id="${p.user_id}">${av(u,42)}<div style="flex:1"><b>${esc(name(u))}</b><span class="muted">${ago(p.created_at)}</span></div>${p.user_id===S.me.id?`<button class="btn sec sm" data-act="delpost" data-id="${p.id}">🗑</button>`:''}</div>
     ${p.content?`<div class="pt">${esc(p.content)}</div>`:''}
     <div class="pm">${p.image_url?`<img src="${esc(p.image_url)}" loading="lazy" alt="">`:''}${p.video_url?`<video src="${esc(p.video_url)}" controls playsinline preload="metadata"></video>`:''}</div>
     <div class="muted" style="margin-top:8px">${lk.length?`👍 ${lk.length}`:''}${S.coms[p.id]?` · ${S.coms[p.id]} commentaire(s)`:''}</div>
     <div class="acts"><button class="${mine?'on':''}" data-act="like" data-id="${p.id}">👍 J'aime</button><button data-act="coms" data-id="${p.id}">💬 Commenter</button></div>
-    <div id="c_${p.id}" hidden></div></div>`+(((ix+1)%5===0)?adCard(AD,adn++):'')}).join('');adSeen();
+    <div id="c_${p.id}" hidden></div></div>`}).join('');
   if(S.tab==='videos')watchVideos();
 }
 async function toggleLike(id){
@@ -431,7 +421,7 @@ async function toggleComs(id){
    `<div class="row" style="margin-top:8px"><input type="text" id="ci_${id}" placeholder="Écrire un commentaire…" style="flex:1;margin:0"><button class="btn sm" data-act="comsend" data-id="${id}">Envoyer</button></div>`;
 }
 async function sendCom(id){
-  const i=$('#ci_'+id),t=i.value.trim();if(!t)return;if(guard(t))return;i.disabled=true;
+  const i=$('#ci_'+id),t=i.value.trim();if(!t)return;i.disabled=true;
   const{error}=await sb.from('comments').insert({post_id:id,user_id:S.me.id,content:t});
   if(error){toast('Erreur : '+error.message);i.disabled=false;return}
   S.coms[id]=(S.coms[id]||0)+1;renderPosts();$('#c_'+id).hidden=true;toggleComs(id);
@@ -540,7 +530,7 @@ function newEvent(){
   <div class="row" style="margin-top:14px"><button class="btn" id="v_go" style="flex:1">Publier</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#v_i').onchange=e=>$('#v_in').textContent=e.target.files[0]?.name?.slice(0,22)||'';
   $('#v_go').onclick=async()=>{
-    const t=$('#v_t').value.trim(),d=$('#v_d').value,b=$('#v_go');if(guard(t,$('#v_x').value))return;
+    const t=$('#v_t').value.trim(),d=$('#v_d').value,b=$('#v_go');
     if(!t||!d)return toast('Titre et date requis.');
     b.disabled=true;b.textContent='Envoi…';
     try{
@@ -553,7 +543,7 @@ function newEvent(){
 }
 
 /* ---------- notifications ---------- */
-const notifText=t=>({like:'a aimé votre publication',comment:'a commenté votre publication',friend_request:'vous a envoyé une demande d\'ami',friend_accept:'a accepté votre demande d\'ami',friend_code:'vous a ajouté grâce à votre code d\'ami',referral:'a fait son premier achat grâce à vous : jetons offerts 🎁'})[t]||'a interagi avec vous';
+const notifText=t=>({like:'a aimé votre publication',comment:'a commenté votre publication',friend_request:'vous a envoyé une demande d\'ami',friend_accept:'a accepté votre demande d\'ami',friend_code:'vous a ajouté grâce à votre code d\'ami'})[t]||'a interagi avec vous';
 const notifOn=t=>{const s=S.settings||{};return t==='like'?s.notify_likes!==false:t==='comment'?s.notify_comments!==false:(t==='friend_request'||t==='friend_accept'||t==='friend_code')?s.notify_friend_requests!==false:true};
 async function vNotifs(){
   const{data}=await sb.from('notifications').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(60);
@@ -568,39 +558,9 @@ const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v===null?d:v}ca
 const money=n=>Number(n||0).toLocaleString('fr-FR');
 const boosted=p=>!!(p.boosted_until&&new Date(p.boosted_until)>new Date());
 const CATS=['Mode','Électronique','Maison','Auto','Beauté','Alimentation','Services','Autre'];
-/* ---------- PREMIUM & PARRAINAGE ---------- */
-async function loadVip(){
-  const{data}=await sb.from('subscriptions').select('user_id').gt('premium_until',new Date().toISOString());
-  S.vip=new Set((data||[]).map(r=>r.user_id))}
-async function premiumCard(){
-  const box=$('#premcard');if(!box)return;
-  const[c,rq,sb2]=await Promise.all([cfg(),sb.from('premium_requests').select('*').eq('user_id',S.me.id).eq('status','pending').limit(1),sb.from('subscriptions').select('premium_until').eq('user_id',S.me.id).maybeSingle()]);
-  const sub=sb2.data,pend=(rq.data||[])[0],active=sub&&new Date(sub.premium_until)>new Date();
-  const perks=`<ul class="muted" style="margin:6px 0 10px 18px;padding:0"><li>Badge 👑 à côté de votre nom</li><li>${esc(c.premium_coins||30)} jetons offerts à chaque mois</li><li>Aucune publicité</li></ul>`;
-  box.innerHTML=`<h4>👑 Urbain Premium</h4>`+(active?`<div class="set"><b>Abonnement actif</b><span class="muted">jusqu'au ${new Date(sub.premium_until).toLocaleDateString('fr-FR')}</span></div>`:'')+perks
-  +(pend?`<div class="muted">Demande en attente : payez ${money(pend.amount)} FCFA par ${esc(c.pay_info)}${c.pay_number?' au <b>'+esc(c.pay_number)+'</b>':''}. Votre abonnement démarre dès que le paiement est vérifié.</div>`
-  :`<button class="btn" style="width:100%" data-act="premreq">${active?'Prolonger de 30 jours':'S\'abonner'} · ${money(c.premium_price||500)} FCFA / mois</button>`)}
-async function requestPremium(){
-  const{data,error}=await sb.rpc('request_premium');if(error)return toast(errMsg(error));
-  const c=await cfg();
-  modal(`<h3>Demande envoyée ✅</h3><p>Payez <b>${money(data)} FCFA</b> ${c.pay_number?`par ${esc(c.pay_info)} au <b>${esc(c.pay_number)}</b>`:'à l\'administrateur par Mobile Money'}.</p><p class="muted">Votre abonnement Premium démarre dès que le paiement est vérifié.</p><button class="btn" style="width:100%" onclick="closeModal()">OK</button>`);
-  premiumCard()}
-async function decidePremium(id,ok){
-  const{error}=await sb.rpc('admin_decide_premium',{p_id:id,p_ok:ok});
-  if(error)return toast(errMsg(error));
-  toast(ok?'Premium activé ✅':'Demande refusée');loadAdminMoney()}
-async function loadPremiumAdmin(){
-  const box=$('#money');if(!box)return;
-  const{data}=await sb.from('premium_requests').select('*').eq('status','pending').order('created_at');const l=data||[];
-  await getProfiles(l.map(r=>r.user_id));
-  box.insertAdjacentHTML('beforeend',`<h4>Abonnements Premium à valider (${l.length})</h4>`+(l.length?l.map(r=>`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(name(S.cache[r.user_id]))}</b><div class="muted">${money(r.amount)} FCFA · ${ago(r.created_at)}</div></div><div class="row"><button class="btn sm" data-act="pok" data-id="${r.id}">Valider</button><button class="btn sec sm" data-act="pno" data-id="${r.id}">Refuser</button></div></div>`).join(''):'<div class="muted">Aucune demande en attente.</div>'))}
-async function refStats(){
-  const el=$('#refst');if(!el)return;
-  const{data}=await sb.rpc('referral_stats');if(!data||!data.invited)return;
-  el.textContent=`${data.invited} ami(s) invité(s) · ${data.earned} ont acheté · ${data.coins} jetons gagnés`}
 async function cfg(){
   if(S.cfg&&Date.now()-(S.cfgT||0)<60000)return S.cfg;
-  const c={boost_price:'500',ad_price:'200',pay_number:'',pay_info:'Mobile Money',coin_rate:'10',game_cost:'5',welcome_coins:'10'};
+  const c={boost_price:'500',pay_number:'',pay_info:'Mobile Money',coin_rate:'10',game_cost:'5',welcome_coins:'10',game_boost_cost:'10',pts_win:'10',pts_boost_win:'50',pts_goal:'1000',pts_daily_cap:'100',pts_gift:'Forfait internet 500 F'};
   const{data}=await sb.from('app_config').select('*');(data||[]).forEach(r=>c[r.key]=r.value);
   S.cfg=c;S.cfgT=Date.now();return c;
 }
@@ -624,7 +584,7 @@ function newVideo(){
   <div class="row" style="margin-top:8px"><button class="btn" id="nv_go" style="flex:1">Publier</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#nv_f').onchange=e=>$('#nv_n').textContent=e.target.files[0]?.name?.slice(0,22)||'';
   $('#nv_go').onclick=async()=>{
-    const f=$('#nv_f').files[0],b=$('#nv_go');if(guard($('#nv_t').value))return;
+    const f=$('#nv_f').files[0],b=$('#nv_go');
     if(!f||!f.type.startsWith('video'))return toast('Choisissez une vidéo.');
     b.disabled=true;b.textContent='Envoi…';
     try{
@@ -649,7 +609,7 @@ async function vShop(){
     sb.from('boost_requests').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}),
     sb.from('favorites').select('product_id').eq('user_id',S.me.id)]);
   S.products=pr.data||[];S.boostReq=br.data||[];S.favs=new Set((fv.data||[]).map(f=>String(f.product_id)));
-  await cfg();shopView();commissionBanner();
+  await cfg();shopView();
 }
 function shopGrid(){
   let l=S.products.filter(p=>!p.sold);
@@ -680,11 +640,11 @@ async function prodModal(id){
   <div class="muted" style="margin:4px 0">${[p.category,p.etat,p.city].filter(Boolean).map(esc).join(' · ')}${p.stock!=null?` · Stock : ${esc(p.stock)}`:''}</div>
   ${p.description?`<p class="pt">${esc(p.description)}</p>`:''}
   <div class="li" data-act="profil" data-id="${p.user_id}" onclick="closeModal()">${av(s,36)}<div class="gr"><b>${esc(name(s))}</b><span>Vendeur</span></div></div>
-  <div class="row" style="margin-top:10px">${p.whatsapp&&!p.sold?`<a class="btn" style="background:#25d366;text-decoration:none;flex:1;text-align:center" target="_blank" rel="noopener" href="https://wa.me/${esc(String(p.whatsapp).replace(/\D/g,''))}?text=${encodeURIComponent('Bonjour, je suis intéressé(e) par : '+p.name)}">WhatsApp</a>`:''}<button class="btn sec" data-act="fav" data-id="${p.id}">${fav?'❤️ Favori':'🤍 Favori'}</button>${p.user_id!==S.me.id?`<button class="btn sec" data-act="report" data-id="${p.id}" data-k="product">🚩 Signaler</button>`:''}<button class="btn sec" onclick="closeModal()">Fermer</button></div>`);
+  <div class="row" style="margin-top:10px">${p.whatsapp&&!p.sold?`<a class="btn" style="background:#25d366;text-decoration:none;flex:1;text-align:center" target="_blank" rel="noopener" href="https://wa.me/${esc(String(p.whatsapp).replace(/\D/g,''))}?text=${encodeURIComponent('Bonjour, je suis intéressé(e) par : '+p.name)}">WhatsApp</a>`:''}<button class="btn sec" data-act="fav" data-id="${p.id}">${fav?'❤️ Favori':'🤍 Favori'}</button><button class="btn sec" onclick="closeModal()">Fermer</button></div>`);
 }
 function prodForm(p){
   const e=!!p;
-  modal(`<h3>${e?'Modifier l\'article':'Vendre un article'}</h3>${e?'':'<p class="muted" style="margin-top:0">Commission de 10 % à verser à Urbain après chaque vente.</p>'}
+  modal(`<h3>${e?'Modifier l\'article':'Vendre un article'}</h3>
   <input type="text" id="pn" placeholder="Nom de l'article" value="${esc(p?.name||'')}">
   <input type="number" id="pp" placeholder="Prix (FCFA)" inputmode="numeric" value="${p?esc(p.price):''}">
   <select id="pcat">${CATS.map(c=>`<option ${p?.category===c?'selected':''}>${c}</option>`).join('')}</select>
@@ -697,7 +657,7 @@ function prodForm(p){
   <div class="row" style="margin-top:14px"><button class="btn" id="pgo" style="flex:1">${e?'Enregistrer':'Mettre en vente'}</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#pi').onchange=ev=>$('#pin').textContent=ev.target.files[0]?.name?.slice(0,22)||'';
   $('#pgo').onclick=async()=>{
-    const n=$('#pn').value.trim(),pr=parseFloat($('#pp').value),b=$('#pgo');if(guard(n,$('#pd').value))return;
+    const n=$('#pn').value.trim(),pr=parseFloat($('#pp').value),b=$('#pgo');
     if(!n||!(pr>=0))return toast('Nom et prix requis.');
     b.disabled=true;b.textContent='Envoi…';
     try{
@@ -726,178 +686,23 @@ async function boostModal(id){
   };
 }
 
-/* ---------- RÈGLES, FILTRE ET SIGNALEMENTS ---------- */
-const BAD_WORDS=['bombe artisanale','fabriquer une bombe','fabriquer des bombes','fabriquer des explosifs','fabriquer une arme','vente d armes','vend des armes','vente de drogue','vente de cocaine','vente d heroine','vente de tramadol','faux billets','faux diplomes','faux papiers','pedopornographie','porno enfant','video porno','porno gratuit','rejoindre daesh','boko haram recrute'];
-function cleanTxt(t){return String(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/['’`\-]/g,' ').replace(/\s+/g,' ')}
-function guard(...txt){
-  const s=cleanTxt(txt.join(' '));
-  if(BAD_WORDS.some(w=>s.includes(w))){toast("Ce contenu est interdit par les règles d'Urbain.");return true}
-  return false;
-}
-function rulesModal(){
-  modal(`<h3>📜 Règles de la communauté</h3>
-  <p class="muted" style="margin-top:0">Pour que chacun se sente bien sur Urbain, il est <b>interdit</b> de publier, de vendre ou de partager :</p>
-  <ul style="margin:0 0 10px 18px;padding:0;line-height:1.5">
-  <li>Tout contenu violent, qui pousse à la haine, au terrorisme ou à faire du mal à quelqu'un.</li>
-  <li>Tout contenu sexuel, et surtout tout contenu qui concerne des mineurs.</li>
-  <li>Des armes, des drogues, des médicaments interdits, de faux billets, de faux papiers, ou tout article illégal.</li>
-  <li>Des arnaques, de fausses annonces, ou le fait de se faire passer pour quelqu'un d'autre.</li>
-  <li>Les insultes, le harcèlement, et les photos ou numéros d'une personne sans son accord.</li>
-  </ul>
-  <p class="muted">Tu es responsable de ce que tu publies. Tu peux signaler un contenu avec le bouton 🚩 : l'administrateur le vérifie et le supprime si besoin. Un contenu interdit est supprimé, et le compte peut être supprimé. Les contenus illégaux peuvent être transmis aux autorités.</p>
-  <button class="btn" style="width:100%" onclick="closeModal()">J'ai compris</button>`);
-}
-function reportModal(id,k){
-  modal(`<h3>🚩 Signaler</h3><p class="muted" style="margin-top:0">Pourquoi signalez-vous ce contenu ?</p>
-  <select id="rp_r"><option>Contenu dangereux ou violent</option><option>Arnaque ou faux article</option><option>Contenu sexuel</option><option>Harcèlement ou insultes</option><option>Autre</option></select>
-  <div class="row"><button class="btn" id="rp_go" style="flex:1">Envoyer le signalement</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
-  $('#rp_go').onclick=async()=>{
-    const{error}=await sb.from('reports').insert({reporter_id:S.me.id,target_type:k,target_id:String(id),reason:$('#rp_r').value});
-    closeModal();
-    if(error)return toast(/duplicate|unique/i.test(error.message)?'Vous avez déjà signalé ceci.':'Erreur : '+error.message);
-    toast('Merci, signalement envoyé ✅');
-  };
-}
-async function loadReportsAdmin(){
-  const box=$('#money');if(!box)return;
-  const{data}=await sb.from('reports').select('*').eq('status','pending').order('created_at'),l=data||[];
-  const pids=l.filter(r=>r.target_type==='post').map(r=>r.target_id),qids=l.filter(r=>r.target_type==='product').map(r=>r.target_id);
-  const[pp,qq]=await Promise.all([
-    pids.length?sb.from('posts').select('id,content,image_url,video_url,user_id').in('id',pids):{data:[]},
-    qids.length?sb.from('products').select('id,name,description,image_url,user_id').in('id',qids):{data:[]}]);
-  const T={};
-  (pp.data||[]).forEach(x=>T['post'+x.id]=x);
-  (qq.data||[]).forEach(x=>T['product'+x.id]=x);
-  await getProfiles([...l.map(r=>r.reporter_id),...Object.values(T).map(x=>x.user_id)]);
-  box.insertAdjacentHTML('beforeend',`<h4>Signalements (${l.length})</h4>`+(l.length?l.map(r=>{
-    const t=T[r.target_type+r.target_id];
-    const txt=t?(t.content||t.name||(t.video_url?'(vidéo)':t.image_url?'(photo)':'')):'(déjà supprimé)';
-    return`<div class="set" style="flex-wrap:wrap;gap:8px"><div style="flex:1;min-width:0"><b>${r.target_type==='post'?'Publication':'Article'}${t?' de '+esc(name(S.cache[t.user_id])):''}</b><div class="muted">Motif : ${esc(r.reason||'')} · signalé par ${esc(name(S.cache[r.reporter_id]))}</div><div class="pt" style="font-size:14px;margin-top:4px">${esc(txt)}</div>${t&&t.image_url?`<img src="${esc(t.image_url)}" style="width:80px;border-radius:8px;margin-top:4px" alt="">`:''}</div><div class="row"><button class="btn red sm" data-act="rpdel" data-id="${r.id}">Supprimer</button><button class="btn sec sm" data-act="rpok" data-id="${r.id}">Ignorer</button></div></div>`}).join(''):'<div class="muted">Aucun signalement.</div>'));
-}
-async function decideReport(id,remove){
-  if(remove&&!confirm('Supprimer ce contenu définitivement ?'))return;
-  const{error}=await sb.rpc('admin_decide_report',{p_id:id,p_remove:remove});
-  if(error)return toast(errMsg(error));
-  toast(remove?'Contenu supprimé ✅':'Signalement ignoré');loadAdminMoney();
-}
-
-/* ---------- PUBLICITÉS ---------- */
-async function loadAds(){
-  if(S.adsT&&Date.now()-S.adsT<60000)return;
-  try{
-    const{data,error}=await sb.from('ads').select('*').eq('status','approved').gt('ends_at',new Date().toISOString()).limit(50);
-    if(!error){S.ads=data||[];S.adsT=Date.now()}
-  }catch(e){}
-}
-function adsFor(){
-  if(!['fil','videos'].includes(S.tab))return[];
-  if(S.vip&&S.vip.has(S.me.id))return[];
-  return(S.ads||[]).filter(a=>new Date(a.ends_at)>new Date());
-}
-function adUrl(l){
-  l=String(l||'').trim();
-  if(/^https?:\/\//i.test(l))return l;
-  const d=l.replace(/\D/g,'');
-  return d.length>=8?'https://wa.me/'+d:'';
-}
-function adCard(list,n){
-  if(!list.length)return'';
-  S.adOff??=Math.floor(Math.random()*1000);
-  const a=list[(n+S.adOff)%list.length];
-  if(a.user_id!==S.me.id)S.adShown.add(a.id);
-  return`<div class="card" style="border:1px solid #f5a623"><div style="margin-bottom:6px"><i class="spons" style="position:static;display:inline-block">📢 Publicité</i></div>
-  ${a.image_url?`<img src="${esc(a.image_url)}" style="width:100%;border-radius:10px;max-height:300px;object-fit:cover" loading="lazy" alt="">`:''}
-  <b style="display:block;margin-top:6px;font-size:17px">${esc(a.title)}</b>
-  ${a.content?`<div class="pt">${esc(a.content)}</div>`:''}
-  ${adUrl(a.link)?`<button class="btn" style="width:100%;margin-top:8px" data-act="adclick" data-id="${a.id}">En savoir plus</button>`:''}</div>`;
-}
-function adSeen(){
-  S.adSeen??=new Set();
-  S.adShown.forEach(id=>{
-    if(S.adSeen.has(id))return;
-    S.adSeen.add(id);
-    sb.rpc('ad_view',{p_id:id}).then(()=>{});
-  });
-}
-function adClick(id){
-  const a=(S.ads||[]).find(x=>String(x.id)===String(id));if(!a)return;
-  const u=adUrl(a.link);if(!u)return;
-  if(a.user_id!==S.me.id)sb.rpc('ad_click',{p_id:a.id}).then(()=>{});
-  window.open(u,'_blank','noopener');
-}
-async function adsCard(){
-  const box=$('#adscard');if(!box)return;
-  const[c,r]=await Promise.all([cfg(),sb.from('ads').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(10)]);
-  if(r.error){box.innerHTML='<h4>📢 Faire ma publicité</h4><div class="muted">Bientôt disponible.</div>';return}
-  const st={pending:'⏳ en attente de validation',approved:'✅ en ligne',rejected:'❌ refusée'};
-  box.innerHTML=`<h4>📢 Faire ma publicité</h4><div class="muted" style="margin-bottom:8px">Votre pub s'affiche toutes les 5 publications, dans le fil et les vidéos. ${money(c.ad_price||200)} FCFA par jour.</div>`
-  +(r.data||[]).map(a=>`<div class="set"><div><b>${esc(a.title)}</b><div class="muted">${a.days} j · ${money(a.amount)} FCFA · ${st[a.status]||esc(a.status)}${a.status==='approved'?` · jusqu'au ${new Date(a.ends_at).toLocaleDateString('fr-FR')} · 👁 ${a.impressions||0} · 👆 ${a.clicks||0}`:''}</div></div></div>`).join('')
-  +`<button class="btn" style="width:100%;margin-top:8px" data-act="newad">+ Créer une pub</button>`;
-}
-async function adForm(){
-  const c=await cfg(),price=parseInt(c.ad_price)||200;
-  modal(`<h3>📢 Ma publicité</h3><p class="muted" style="margin-top:0">Elle s'affiche toutes les 5 publications dans le fil et les vidéos, dès que votre paiement est vérifié.</p>
-  <input type="text" id="ad_t" placeholder="Titre (ex. Robes à Cotonou)" maxlength="60">
-  <textarea id="ad_x" placeholder="Texte de la pub (facultatif)" maxlength="200"></textarea>
-  <input type="text" id="ad_l" placeholder="Votre numéro WhatsApp (22997000000) ou lien du site">
-  <div class="row"><label class="filebtn">📷 Image<input type="file" id="ad_i" accept="image/*" hidden></label><span class="muted" id="ad_in"></span></div>
-  ${[1,3,7].map((d,i)=>`<label class="plusrow" style="justify-content:space-between;margin-top:8px"><span style="font-size:16px"><input type="radio" name="ad_d" value="${d}" ${i===1?'checked':''}> ${d} jour${d>1?'s':''}</span><span style="font-size:16px">${money(d*price)} FCFA</span></label>`).join('')}
-  <div class="row" style="margin-top:8px"><button class="btn" id="ad_go" style="flex:1">Envoyer</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
-  $('#ad_i').onchange=e=>$('#ad_in').textContent=e.target.files[0]?.name?.slice(0,22)||'';
-  $('#ad_go').onclick=async()=>{
-    const t=$('#ad_t').value.trim(),l=$('#ad_l').value.trim(),b=$('#ad_go');if(guard(t,$('#ad_x').value))return;
-    if(!t)return toast('Donnez un titre à votre pub.');
-    if(!adUrl(l))return toast('Indiquez un numéro WhatsApp ou un lien qui commence par http.');
-    const d=parseInt(document.querySelector('input[name=ad_d]:checked').value);
-    b.disabled=true;b.textContent='Envoi…';
-    try{
-      const row={user_id:S.me.id,title:t,content:$('#ad_x').value.trim()||null,link:l,days:d,amount:d*price,status:'pending'};
-      const f=$('#ad_i').files[0];if(f)row.image_url=await upload(f);
-      const{error}=await sb.from('ads').insert(row);if(error)throw error;
-      const sh=$('#modal .sheet');
-      if(sh)sh.innerHTML=`<h3>Demande envoyée ✅</h3><p>Payez <b>${money(d*price)} FCFA</b> ${c.pay_number?`par ${esc(c.pay_info)} au <b>${esc(c.pay_number)}</b>`:"à l'administrateur par Mobile Money"}.</p><p class="muted">Votre pub démarre dès que le paiement est vérifié.</p><button class="btn" style="width:100%" onclick="closeModal()">OK</button>`;
-      if(S.tab==='reglages')adsCard();
-    }catch(e){toast('Erreur : '+(e.message||e));b.disabled=false;b.textContent='Envoyer'}
-  };
-}
-async function loadAdsAdmin(){
-  const box=$('#money');if(!box)return;
-  const{data}=await sb.from('ads').select('*').eq('status','pending').order('created_at'),l=data||[];
-  await getProfiles(l.map(r=>r.user_id));
-  box.insertAdjacentHTML('beforeend',`<h4>Pubs à valider (${l.length})</h4>`+(l.length?l.map(a=>`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(a.title)}</b><div class="muted">${esc(name(S.cache[a.user_id]))} · ${a.days} j · ${money(a.amount)} FCFA · ${esc(a.link||'')}</div>${a.content?`<div class="muted">${esc(a.content)}</div>`:''}${a.image_url?`<img src="${esc(a.image_url)}" style="width:80px;border-radius:8px;margin-top:4px" alt="">`:''}</div><div class="row"><button class="btn sm" data-act="adok" data-id="${a.id}">Valider</button><button class="btn sec sm" data-act="adno" data-id="${a.id}">Refuser</button></div></div>`).join(''):'<div class="muted">Aucune pub en attente.</div>'));
-}
-async function decideAd(id,ok){
-  const{error}=await sb.rpc('admin_decide_ad',{p_id:id,p_ok:ok});
-  if(error)return toast(errMsg(error));
-  S.adsT=0;toast(ok?'Pub activée ✅':'Pub refusée');loadAdminMoney();
-}
-
 /* ---------- argent (administrateur) ---------- */
-async function loadAdminMoney(){await loadAdminMoney0();await loadCommissionsAdmin();await loadRewardsAdmin();await loadPremiumAdmin();await loadAdsAdmin();await loadReportsAdmin()}
-async function commissionModal(id){const[c,r]=await Promise.all([cfg(),sb.from('sales').select('*').eq('product_id',id).eq('status','due').order('created_at',{ascending:false}).limit(1)]),s=(r.data||[])[0];
-  if(!s)return;modal(`<h3>✅ Article vendu</h3><p>Ta commission de ${esc(c.shop_commission||10)} % est de <b>${money(s.commission)} ${esc(s.currency||'FCFA')}</b>.</p><p class="muted">Envoie-la par ${esc(c.pay_info)}${c.pay_number?' au <b>'+esc(c.pay_number)+'</b>':''}. Elle est marquée payée dès que l'administrateur l'a reçue.</p><button class="btn" style="width:100%" onclick="closeModal()">OK</button>`)}
-async function commissionBanner(){const{data}=await sb.from('sales').select('*').eq('seller_id',S.me.id).eq('status','due'),l=data||[];if(!l.length||S.tab!=='shop')return;
-  const c=await cfg(),tot=l.reduce((s,x)=>s+Number(x.commission),0);
-  $('#view').insertAdjacentHTML('afterbegin',`<div class="card" style="border-left:4px solid #f5a623"><b>💸 Commission à verser : ${money(tot)} FCFA</b><div class="muted">${l.length} vente(s) · ${esc(c.shop_commission||10)} % de chaque vente. Envoie-la par ${esc(c.pay_info)}${c.pay_number?' au <b>'+esc(c.pay_number)+'</b>':''}. Sans paiement sous ${esc(c.commission_grace_days||7)} jours, tu ne pourras plus publier de nouvel article.</div></div>`)}
-async function loadCommissionsAdmin(){const box=$('#money');if(!box)return;
-  const{data}=await sb.from('sales').select('*').eq('status','due').order('created_at'),l=data||[];await getProfiles(l.map(r=>r.seller_id));
-  const tot=l.reduce((s,x)=>s+Number(x.commission),0);
-  box.insertAdjacentHTML('beforeend',`<h4>Commissions à encaisser (${l.length}) · ${money(tot)} FCFA</h4>`+(l.length?l.map(r=>`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(name(S.cache[r.seller_id]))}</b><div class="muted">${esc(r.product_name||'Article')} · vendu ${money(r.amount)} · commission ${money(r.commission)} FCFA · ${ago(r.created_at)}</div></div><button class="btn sm" data-act="comok" data-id="${r.id}">Reçu ✅</button></div>`).join(''):'<div class="muted">Aucune commission en attente.</div>'))}
-async function confirmCommission(id){const{error}=await sb.rpc('admin_confirm_commission',{p_id:id});if(error)return toast(errMsg(error));toast('Commission encaissée ✅');loadAdminMoney()}
-async function loadAdminMoney0(){
+async function loadAdminMoney(){
   const box=$('#money');if(!box)return;
-  const[{data:br},{data:cr},{data:pr},c,{data:ar}]=await Promise.all([sb.from('boost_requests').select('*').order('created_at',{ascending:false}).limit(150),sb.from('coin_requests').select('*').order('created_at',{ascending:false}).limit(150),sb.from('premium_requests').select('*').eq('status','approved').order('created_at',{ascending:false}).limit(150),cfg(),sb.from('ads').select('amount,decided_at,created_at').eq('status','approved').limit(300)]);
+  const[{data:br},{data:cr},c]=await Promise.all([sb.from('boost_requests').select('*').order('created_at',{ascending:false}).limit(150),sb.from('coin_requests').select('*').order('created_at',{ascending:false}).limit(150),cfg()]);
+  const{data:rw}=await sb.from('reward_requests').select('*').eq('status','pending').order('created_at');const rpend=rw||[];await getProfiles(rpend.map(r=>r.user_id));
   const list=br||[],ok=list.filter(b=>b.status==='approved'),pend=list.filter(b=>b.status==='pending');
   const cok=(cr||[]).filter(r=>r.status==='approved'),cpend=(cr||[]).filter(r=>r.status==='pending');
   await getProfiles(cpend.map(r=>r.user_id));
   const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);
   const sum=(a,d)=>a.filter(x=>!d||new Date(x.decided_at||x.created_at)>=d).reduce((s,x)=>s+x.amount,0);
-  const pok=pr||[],aok=ar||[],tot=sum(ok)+sum(cok)+sum(pok)+sum(aok),mon=sum(ok,m0)+sum(cok,m0)+sum(pok,m0)+sum(aok,m0),monC=sum(cok,m0),monP=sum(pok,m0);
+  const tot=sum(ok)+sum(cok),mon=sum(ok,m0)+sum(cok,m0),monC=sum(cok,m0);
   const pn={};
   if(pend.length){const{data}=await sb.from('products').select('id,name,user_id').in('id',[...new Set(pend.map(b=>b.product_id))]);(data||[]).forEach(p=>pn[String(p.id)]=p);await getProfiles((data||[]).map(p=>p.user_id))}
-  box.innerHTML=`<div class="set"><div><b>Revenus du mois</b><div class="muted">Total depuis le début : ${money(tot)} FCFA · dont jetons ce mois : ${money(monC)} FCFA · Premium : ${money(monP)} FCFA</div></div><b style="font-size:20px;color:var(--pr)">${money(mon)} FCFA</b></div>
-  <div class="set"><div><b>Tarifs et paiement</b><div class="muted">Boost : ${money(c.boost_price)} FCFA/jour · Jeton : ${money(c.coin_rate)} FCFA · Partie : ${money(c.game_cost)} jetons/joueur · Offerts à l'inscription : ${money(c.welcome_coins)} · Premium : ${money(c.premium_price||500)} FCFA/mois (+${money(c.premium_coins||30)} jetons) · Parrainage : ${money(c.referral_coins||5)} jetons · Pub : ${money(c.ad_price||200)} FCFA/jour<br>${esc(c.pay_info)} ${c.pay_number?esc(c.pay_number):'(numéro non renseigné)'}</div></div><button class="btn sec sm" data-act="payset">Modifier</button></div>
+  box.innerHTML=`<div class="set"><div><b>Revenus du mois</b><div class="muted">Total depuis le début : ${money(tot)} FCFA · dont jetons ce mois : ${money(monC)} FCFA</div></div><b style="font-size:20px;color:var(--pr)">${money(mon)} FCFA</b></div>
+  <div class="set"><div><b>Tarifs et paiement</b><div class="muted">Boost : ${money(c.boost_price)} FCFA/jour · Jeton : ${money(c.coin_rate)} FCFA · Partie : ${money(c.game_cost)} jetons/joueur · Offerts à l'inscription : ${money(c.welcome_coins)}<br>${esc(c.pay_info)} ${c.pay_number?esc(c.pay_number):'(numéro non renseigné)'}</div></div><button class="btn sec sm" data-act="payset">Modifier</button></div>
   <h4>Jetons à valider (${cpend.length})</h4>${cpend.length?cpend.map(r=>`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(name(S.cache[r.user_id]))}</b><div class="muted">${r.coins} jetons · ${money(r.amount)} FCFA</div></div><div class="row"><button class="btn sm" data-act="cok" data-id="${r.id}">Valider</button><button class="btn sec sm" data-act="cno" data-id="${r.id}">Refuser</button></div></div>`).join(''):'<div class="muted">Aucune demande en attente.</div>'}
+  <h4>Cadeaux à valider (${rpend.length})</h4>${rpend.length?rpend.map(r=>`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(name(S.cache[r.user_id]))}</b><div class="muted">${r.kind==='forfait'?'Forfait internet':'Article boutique'} · ${esc(r.note||'')}</div></div><div class="row"><button class="btn sm" data-act="rwok" data-id="${r.id}">Valider</button><button class="btn sec sm" data-act="rwno" data-id="${r.id}">Refuser</button></div></div>`).join(''):'<div class="muted">Aucun cadeau en attente.</div>'}
   <h4>Boosts à valider (${pend.length})</h4>${pend.length?pend.map(b=>{const p=pn[b.product_id];return`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(p?.name||'Article supprimé')}</b><div class="muted">${esc(name(S.cache[p?.user_id]))} · ${b.days} j · ${money(b.amount)} FCFA</div></div><div class="row"><button class="btn sm" data-act="bokok" data-id="${b.id}">Valider</button><button class="btn sec sm" data-act="bokno" data-id="${b.id}">Refuser</button></div></div>`}).join(''):'<div class="muted">Aucune demande en attente.</div>'}`;
 }
 async function approveBoost(id){
@@ -912,17 +717,17 @@ async function approveBoost(id){
 }
 async function paySet(){
   const c=await cfg();
-  modal(`<h3>Tarifs et paiement</h3><input type="number" id="c_cr" placeholder="Prix d'un jeton (FCFA)" inputmode="numeric" value="${esc(c.coin_rate)}"><input type="number" id="c_gc" placeholder="Jetons par partie et par joueur" inputmode="numeric" value="${esc(c.game_cost)}"><input type="number" id="c_wc" placeholder="Jetons offerts à l'inscription" inputmode="numeric" value="${esc(c.welcome_coins)}"><input type="number" id="c_p" placeholder="Prix d'un boost par jour (FCFA)" inputmode="numeric" value="${esc(c.boost_price)}"><input type="number" id="c_pp" placeholder="Prix du Premium par mois (FCFA)" inputmode="numeric" value="${esc(c.premium_price||500)}"><input type="number" id="c_pc" placeholder="Jetons offerts chaque mois aux Premium" inputmode="numeric" value="${esc(c.premium_coins||30)}"><input type="number" id="c_rc" placeholder="Jetons gagnés par ami invité qui achète" inputmode="numeric" value="${esc(c.referral_coins||5)}"><input type="number" id="c_ad" placeholder="Prix d'une pub par jour (FCFA)" inputmode="numeric" value="${esc(c.ad_price||200)}"><input type="text" id="c_i" placeholder="Moyen (ex. MTN MoMo)" value="${esc(c.pay_info)}"><input type="text" id="c_n" placeholder="Votre numéro Mobile Money" inputmode="tel" value="${esc(c.pay_number)}">
+  modal(`<h3>Tarifs et paiement</h3><input type="number" id="c_cr" placeholder="Prix d'un jeton (FCFA)" inputmode="numeric" value="${esc(c.coin_rate)}"><input type="number" id="c_gc" placeholder="Jetons par partie et par joueur" inputmode="numeric" value="${esc(c.game_cost)}"><input type="number" id="c_wc" placeholder="Jetons offerts à l'inscription" inputmode="numeric" value="${esc(c.welcome_coins)}"><input type="number" id="c_p" placeholder="Prix d'un boost par jour (FCFA)" inputmode="numeric" value="${esc(c.boost_price)}"><input type="text" id="c_i" placeholder="Moyen (ex. MTN MoMo)" value="${esc(c.pay_info)}"><input type="text" id="c_n" placeholder="Votre numéro Mobile Money" inputmode="tel" value="${esc(c.pay_number)}">
   <div class="row"><button class="btn" id="c_go" style="flex:1">Enregistrer</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#c_go').onclick=async()=>{
     const nn=(id,d)=>{const x=parseInt($(id).value);return String(Number.isFinite(x)&&x>=0?x:d)};
-    const rows=[['coin_rate',String(Math.max(1,parseInt($('#c_cr').value)||10))],['game_cost',nn('#c_gc',5)],['welcome_coins',nn('#c_wc',10)],['boost_price',String(parseInt($('#c_p').value)||500)],['premium_price',String(Math.max(1,parseInt($('#c_pp').value)||500))],['premium_coins',nn('#c_pc',30)],['referral_coins',nn('#c_rc',5)],['ad_price',String(Math.max(1,parseInt($('#c_ad').value)||200))],['pay_info',$('#c_i').value.trim()||'Mobile Money'],['pay_number',$('#c_n').value.trim()]].map(([key,value])=>({key,value,updated_at:new Date().toISOString()}));
+    const rows=[['coin_rate',String(Math.max(1,parseInt($('#c_cr').value)||10))],['game_cost',nn('#c_gc',5)],['welcome_coins',nn('#c_wc',10)],['boost_price',String(parseInt($('#c_p').value)||500)],['pay_info',$('#c_i').value.trim()||'Mobile Money'],['pay_number',$('#c_n').value.trim()]].map(([key,value])=>({key,value,updated_at:new Date().toISOString()}));
     const{error}=await sb.from('app_config').upsert(rows);if(error)return toast('Erreur : '+error.message);
     S.cfg=null;closeModal();toast('Enregistré ✅');loadAdminMoney();
   };
 }
 function aboutModal(){
-  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.3</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
+  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.0</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis, sur invitation.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
 }
 const lsw=(k,label,sub,def='1')=>`<div class="set"><div><b>${label}</b>${sub?`<div class="muted">${sub}</div>`:''}</div><button class="sw ${LS.get(k,def)==='1'?'on':''}" data-act="lsw" data-id="${k}"></button></div>`;
 
@@ -965,29 +770,26 @@ async function vReglages(){
   $('#view').innerHTML=`<div class="card"><h4>Compte</h4>
   <div class="li" data-act="editprofile">${av(S.profile,46)}<div class="gr"><b>${esc(name(S.profile))}</b><span>${esc(S.me.email||'')}</span></div><span>›</span></div>
   <div class="set" data-act="chpass" style="cursor:pointer"><b>🔑 Changer le mot de passe</b><span>›</span></div></div>
-  <div class="card" id="premcard"><h4>👑 Urbain Premium</h4><div class="muted">Chargement…</div></div>
-  <div class="card" id="adscard"><h4>📢 Faire ma publicité</h4><div class="muted">Chargement…</div></div>
   <div class="card"><h4>Notifications</h4>${sw('notify_likes','J\'aime')}${sw('notify_comments','Commentaires')}${sw('notify_friend_requests','Demandes d\'amis')}${sw('notify_messages','Messages')}</div>
   <div class="card"><h4>Confidentialité</h4>${sw('show_online','Afficher quand je suis en ligne','Vos amis voient le point vert')}</div>
   <div class="card"><h4>Apparence</h4>${sw('dark_mode','Mode sombre')}<div class="set"><b>Taille du texte</b><div class="row">${[['14px','A−'],['16px','A'],['18px','A+']].map(([s,l])=>`<button class="btn sm ${LS.get('u_font','16px')===s?'':'sec'}" data-act="font" data-id="${s}">${l}</button>`).join('')}</div></div></div>
   <div class="card"><h4>Vidéos</h4>${lsw('u_autoplay','Lecture automatique','Les vidéos démarrent en défilant, sans le son')}</div>
   <div class="card"><h4>Boutique</h4><div class="set" data-act="myshop" style="cursor:pointer"><b>🏪 Ma boutique</b><span>›</span></div></div>
   <div class="card"><h4>Sécurité</h4><div class="set" data-act="logoutall" style="cursor:pointer"><b>📱 Se déconnecter de tous les appareils</b><span>›</span></div></div>
-  <div class="card"><h4>Aide</h4><div class="set" data-act="rules" style="cursor:pointer"><b>📜 Règles de la communauté</b><span>›</span></div><div class="set" data-act="about" style="cursor:pointer"><b>ℹ️ À propos d'Urbain</b><span>›</span></div></div>
+  <div class="card"><h4>Aide</h4><div class="set" data-act="about" style="cursor:pointer"><b>ℹ️ À propos d'Urbain</b><span>›</span></div></div>
   ${adm?`<div class="card"><h4>💰 Revenus et boosts (administrateur)</h4><div id="money"><div class="muted">Chargement…</div></div></div>`:''}
   <div class="card"><button class="btn red" style="width:100%" data-act="logout">Se déconnecter</button></div>`;
-  if(adm)loadAdminMoney();premiumCard();adsCard();
+  if(adm)loadAdminMoney();
 }
 /* ---------- bouton + : story, publication, note ---------- */
 function plusMenu(){
   modal(`<h3>Créer / Jouer</h3>
-  <div class="plusrow" data-lg="open"><span>🎮</span>Jeux à 2 joueurs (Ludo, Penalty, Morpion, Puissance 4, Course)</div>
+  <div class="plusrow" data-lg="open"><span>🎮</span>Jeux (Ludo, Penalty)</div>
   <div class="plusrow" data-lg="ia"><span>🤖</span>Assistant IA</div>
   <div class="plusrow" data-lg="install"><span>📲</span>Installer l'app</div>
   <div class="plusrow" data-act="addstory"><span>📖</span>Story (24 h)</div>
   <div class="plusrow" data-act="newpost"><span>📝</span>Publication</div>
   <div class="plusrow" data-act="newnote"><span>💭</span>Note (courte, 24 h)</div>
-  <div class="plusrow" data-act="newad"><span>📢</span>Faire ma pub</div>
   <button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
 }
 function newPost(){
@@ -996,7 +798,7 @@ function newPost(){
   <div class="row" style="margin-top:14px"><button class="btn" id="np_go" style="flex:1">Publier</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#np_f').onchange=e=>$('#np_n').textContent=e.target.files[0]?.name?.slice(0,22)||'';
   $('#np_go').onclick=async()=>{
-    const t=$('#np_t').value.trim(),f=$('#np_f').files[0],b=$('#np_go');if(guard(t))return;
+    const t=$('#np_t').value.trim(),f=$('#np_f').files[0],b=$('#np_go');
     if(!t&&!f)return toast('Écrivez quelque chose ou ajoutez un média.');
     b.disabled=true;b.textContent='Envoi…';
     try{
@@ -1011,7 +813,7 @@ function newNote(){
   modal(`<h3>Votre note</h3><p class="muted" style="margin-top:0">Une phrase courte visible par vos amis pendant 24 h.</p><input type="text" id="nn_t" maxlength="60" placeholder="Partagez une pensée…">
   <div class="row"><button class="btn" id="nn_go" style="flex:1">Partager</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#nn_go').onclick=async()=>{
-    const t=$('#nn_t').value.trim();if(!t)return toast('Écrivez votre note.');if(guard(t))return;
+    const t=$('#nn_t').value.trim();if(!t)return toast('Écrivez votre note.');
     const b=$('#nn_go');b.disabled=true;
     await sb.from('notes').delete().eq('user_id',S.me.id);
     const{error}=await sb.from('notes').insert({user_id:S.me.id,content:t});
@@ -1097,14 +899,14 @@ async function iaSend(){const i=$('#ia_i');if(!i||S.iaBusy)return;const q=i.valu
 const PG={g:null,ch:null,iv:null},pMe=()=>PG.g.p1===S.me.id?0:1,pNow=()=>new Date().toISOString();
 function pStop(){clearInterval(PG.iv);if(PG.ch){sb.removeChannel(PG.ch);PG.ch=null}const g=PG.g;PG.g=null;
   if(g&&g.status==='waiting'&&S.me&&g.p1===S.me.id)sb.from('penalty_games').delete().eq('id',g.id).eq('status','waiting').then(()=>{})}
-async function pJoin(id){const{data}=await sb.from('penalty_games').update({p2:S.me.id,boost2:!!S.boost,status:'playing',updated_at:pNow()}).eq('id',id).is('p2',null).eq('status','waiting').select();return data&&data[0]||null}
-async function pPlay(){pStop();$('#view').innerHTML='<div class="loading">Recherche d\'une partie…</div>';
+async function pJoin(id,bo){const{data}=await sb.from('penalty_games').update({p2:S.me.id,boost2:!!bo,status:'playing',updated_at:pNow()}).eq('id',id).is('p2',null).eq('status','waiting').select();return data&&data[0]||null}
+async function pPlay(bo){pStop();$('#view').innerHTML='<div class="loading">Recherche d\'une partie…</div>';
   const me=S.me.id,r1=await sb.from('penalty_games').select('*').or(`p1.eq.${me},p2.eq.${me}`).neq('status','done').order('created_at',{ascending:false}).limit(1);
   if(r1.data&&r1.data[0])return pOpen(r1.data[0]);
-  if(!await needCoins())return go('jeux');
+  if(!await needCoins(bo))return go('jeux');
   const r2=await sb.from('penalty_games').select('id').eq('status','waiting').is('p2',null).neq('p1',me).gt('created_at',new Date(Date.now()-600000).toISOString()).order('created_at').limit(1);
-  if(r2.data&&r2.data[0]){const j=await pJoin(r2.data[0].id);if(j)return pOpen(j)}
-  const r3=await sb.from('penalty_games').insert({p1:me,boost1:!!S.boost}).select().single();if(r3.error)throw r3.error;pOpen(r3.data)}
+  if(r2.data&&r2.data[0]){const j=await pJoin(r2.data[0].id,bo);if(j)return pOpen(j)}
+  const r3=await sb.from('penalty_games').insert({p1:me,boost1:!!bo}).select().single();if(r3.error)throw r3.error;pOpen(r3.data)}
 function pApply(g){PG.g=g;pRender();if(g.status==='playing'&&g.sc!=null&&g.kc!=null)pResolve(g)}
 function pOpen(g){pStop();PG.g=g;
   PG.ch=sb.channel('pen-'+g.id).on('postgres_changes',{event:'UPDATE',schema:'public',table:'penalty_games',filter:'id=eq.'+g.id},p=>{if(PG.g&&p.new.id===PG.g.id)pApply(p.new)}).subscribe();
@@ -1146,7 +948,7 @@ async function pRender(){const g=PG.g,v=$('#view');if(!g||S.tab!=='jeux')return;
   <div class="row" style="margin-top:6px">${bt(0,'◀ Gauche')}${bt(1,'Centre')}${bt(2,'Droite ▶')}</div>
   <div class="row" style="justify-content:center;margin-top:12px">${g.status==='done'?'<button class="btn" data-pg="play">Rejouer</button>':''}<button class="btn sec" data-pg="quit">${g.status==='done'?'Quitter':'Abandonner'}</button></div></div>`}
 document.addEventListener('click',async e=>{const el=e.target.closest('[data-pg]');if(!el)return;const a=el.dataset.pg;
-  try{if(a==='play')return await pPlay();if(a==='pick')return await pPick(+el.dataset.d);if(a==='quit')return await pQuit()}
+  try{if(a==='play')return await pPlay(el.dataset.boost==='1');if(a==='pick')return await pPick(+el.dataset.d);if(a==='quit')return await pQuit()}
   catch(err){toast(errMsg(err))}});
 
 /* ---------- LUDO (2 joueurs en ligne) ---------- */
@@ -1157,45 +959,51 @@ const lMov=(st,pl,d)=>{const o=[];st.pos[pl].forEach((p,k)=>{if(p===-1?d===6:p+d
 function lStop(){clearInterval(LG.iv);if(LG.ch){sb.removeChannel(LG.ch);LG.ch=null}const g=LG.g;LG.g=null;
   if(g&&g.status==='waiting'&&S.me&&g.p1===S.me.id)sb.from('ludo_games').delete().eq('id',g.id).eq('status','waiting').then(()=>{})}
 async function vJeux(){lStop();pStop();dStop();
-  const[b,c,pi,rq]=await Promise.all([sb.rpc('coin_balance'),cfg(),sb.rpc('points_info'),sb.from('reward_requests').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(3)]);
-  if(S.tab!=='jeux')return;
-  const P=pi.data||{points:0,today:0},goal=parseInt(c.pts_goal)||1000,cap=parseInt(c.pts_daily_cap)||100,win=parseInt(c.pts_win)||10,bwin=parseInt(c.pts_boost_win)||50,
-    bc=parseInt(c.game_boost_cost)||10,rate=parseInt(c.coin_rate)||10,cost=parseInt(c.game_cost)||0,pct=Math.min(100,Math.round(P.points*100/goal)),boost=!!S.boost,ok=P.points>=goal;
-  const lab=boost?`Jouer ⚡ · ${cost+bc} 🪙`:(cost?`Jouer · ${cost} 🪙`:'Jouer · gratuit');
-  const g=(ico,t,d,att)=>`<div class="card" style="text-align:center"><div style="font-size:54px">${ico}</div><h3 style="margin:4px 0">${t}</h3><div class="muted" style="margin-bottom:12px">${d}</div><button class="btn" ${att} style="width:100%">${lab}</button></div>`;
-  const st={pending:'en attente',approved:'envoyé ✅',rejected:'refusé (points rendus)'};
-  $('#view').innerHTML=`<div class="card"><div style="font-weight:800;font-size:17px">🏆 GAGNE DES POINTS EN JOUANT</div>
-  <div class="muted" style="margin:4px 0 8px">Victoire gratuite : +${win} points (max ${cap} par jour). <b>${goal} POINTS = CADEAU GARANTI</b> : un forfait internet (${esc(c.pts_gift||'')}) ou un article de la boutique.</div>
-  <div style="background:var(--soft);border-radius:8px;height:12px;overflow:hidden"><div style="width:${pct}%;height:100%;background:var(--pr)"></div></div>
-  <div class="row" style="justify-content:space-between;margin-top:6px"><b>${P.points} / ${goal} points</b><span class="muted">Aujourd'hui : ${P.today} / ${cap}</span></div>
-  <button class="btn" style="width:100%;margin-top:8px" data-act="reward" ${ok?'':'disabled'}>🎁 ${ok?'Réclamer mon cadeau':'Cadeau à '+goal+' points'}</button>
-  ${(rq.data||[]).map(r=>`<div class="muted" style="margin-top:6px">Cadeau demandé (${r.kind==='forfait'?'forfait':'boutique'}) : ${st[r.status]||r.status}</div>`).join('')}</div>
-  <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div><b style="font-size:20px">🪙 ${b.data||0} jetons</b><div class="muted">1 jeton = ${money(rate)} FCFA</div></div><button class="btn sm" data-act="buycoins">+ Acheter</button></div>
-  <div class="card"><div class="set" style="padding:0;border:0;gap:12px"><div><b>⚡ BOOST ${money(bc*rate)} F POUR ALLER PLUS VITE</b><div class="muted">Une victoire rapporte +${bwin} points au lieu de ${win}, sans limite par jour. Coût : ${bc} jetons par partie.</div></div><button class="sw${boost?' on':''}" data-act="boostsw"></button></div></div>`
+  const[b,c,pi]=await Promise.all([sb.rpc('coin_balance'),cfg(),sb.rpc('points_info')]),cost=parseInt(c.game_cost)||0,bc=parseInt(c.game_boost_cost)||0,rate=parseInt(c.coin_rate)||10;
+  const goal=parseInt(c.pts_goal)||1000,pw=parseInt(c.pts_win)||10,pb=parseInt(c.pts_boost_win)||50,cap=parseInt(c.pts_daily_cap)||100;
+  const P=(pi.data&&pi.data.points)||0,T=(pi.data&&pi.data.today)||0,pc=Math.min(100,Math.round(P*100/goal));
+  const g=(ico,t,d,att)=>`<div class="card" style="text-align:center"><div style="font-size:54px">${ico}</div><h3 style="margin:4px 0">${t}</h3><div class="muted" style="margin-bottom:12px">${d}</div><button class="btn" ${att} style="width:100%">Jouer · ${cost} 🪙 <span style="opacity:.85">(+${pw} pts si tu gagnes)</span></button><button class="btn sec" ${att} data-boost="1" style="width:100%;margin-top:8px">⚡ Boost ${money(bc*rate)} F · +${bc} 🪙 · victoire = ${pb} pts</button></div>`;
+  $('#view').innerHTML=`<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div><b style="font-size:20px">🪙 ${b.data||0} jetons</b><div class="muted">${cost} jetons par joueur et par partie</div></div><button class="btn sm" data-act="buycoins">+ Acheter</button></div>
+  <div class="card"><div style="text-align:center;font-weight:800;color:var(--pr)">GAGNE DES POINTS EN JOUANT</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px"><b style="font-size:20px">⭐ ${P} / ${goal} points</b><span class="muted">${T} / ${cap} aujourd'hui</span></div>
+  <div style="height:10px;background:var(--soft);border-radius:6px;overflow:hidden;margin:8px 0"><div style="height:100%;width:${pc}%;background:var(--pr)"></div></div>
+  <div style="text-align:center;font-weight:800">${goal} POINTS = CADEAU GARANTI 🎁</div>
+  <div class="muted" style="text-align:center;margin:4px 0 10px">${esc(c.pts_gift||'Forfait internet 500 F')} ou un article de Ma boutique · Victoire normale : +${pw} pts (max ${cap}/jour) · Boost : +${pb} pts<br><b>BOOST ${money(bc*rate)}F POUR ALLER PLUS VITE</b></div>
+  <button class="btn" data-act="claim" style="width:100%" ${P>=goal?'':'disabled'}>🎁 Réclamer mon cadeau</button><button class="btn sec" data-act="myrewards" style="width:100%;margin-top:8px">Mes demandes de cadeau</button></div>`
   +g('🎲','Ludo','2 joueurs en ligne · sors un 6 pour faire entrer un pion','data-lg="play"')
   +g('⚽','Penalty','2 joueurs en ligne · 5 tirs chacun · devine où va le ballon','data-pg="play"')
   +g('❌','Morpion','2 joueurs en ligne · aligne 3 symboles avant ton adversaire','data-dg="play" data-k="morpion"')
   +g('🔴','Puissance 4','2 joueurs en ligne · aligne 4 jetons en ligne, colonne ou diagonale','data-dg="play" data-k="p4"')
-  +g('🏎️','Course de voitures','2 joueurs en ligne · tapez le plus vite possible, le premier arrivé gagne','data-dg="play" data-k="course"')}
-async function rewardModal(){const c=await cfg();
-  modal(`<h3>🎁 Mon cadeau</h3><p class="muted" style="margin-top:0">Choisis ton cadeau. L'administrateur le valide puis te l'envoie.</p>
-  <select id="rw_k"><option value="forfait">Forfait internet (${esc(c.pts_gift||'')})</option><option value="boutique">Un article de la boutique</option></select>
-  <input type="text" id="rw_n" maxlength="200" placeholder="Ton numéro de téléphone ou l'article souhaité">
-  <div class="row"><button class="btn" id="rw_go">Envoyer ma demande</button><button class="btn sec" onclick="closeModal()">Fermer</button></div>`);
-  $('#rw_go').onclick=async()=>{const{error}=await sb.rpc('redeem_points',{p_kind:$('#rw_k').value,p_note:$('#rw_n').value.trim()});if(error)return toast(errMsg(error));closeModal();toast('Demande envoyée ✅');vJeux()}}
-async function loadRewardsAdmin(){const box=$('#money');if(!box)return;
-  const{data}=await sb.from('reward_requests').select('*').eq('status','pending').order('created_at'),l=data||[];await getProfiles(l.map(r=>r.user_id));
-  box.insertAdjacentHTML('beforeend',`<h4>Cadeaux à valider (${l.length})</h4>`+(l.length?l.map(r=>`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(name(S.cache[r.user_id]))}</b><div class="muted">${r.kind==='forfait'?'Forfait internet':'Article boutique'} · ${esc(r.note)}</div></div><div class="row"><button class="btn sm" data-act="rok" data-id="${r.id}">Envoyé ✅</button><button class="btn sec sm" data-act="rno" data-id="${r.id}">Refuser</button></div></div>`).join(''):'<div class="muted">Aucun cadeau en attente.</div>'))}
-async function decideReward(id,ok){const{error}=await sb.rpc('admin_decide_reward',{p_id:id,p_ok:ok});if(error)return toast(errMsg(error));toast(ok?'Cadeau marqué comme envoyé ✅':'Refusé : points rendus');loadAdminMoney()}
-async function lJoin(id){const{data}=await sb.from('ludo_games').update({p2:S.me.id,boost2:!!S.boost,status:'playing',state:lNew(),updated_at:new Date().toISOString()}).eq('id',id).is('p2',null).eq('status','waiting').select();return data&&data[0]||null}
-async function lPlay(){lStop();$('#view').innerHTML='<div class="loading">Recherche d\'une partie…</div>';
+  +`<div class="card muted" style="text-align:center">La course de voitures arrive bientôt 🎮</div>`}
+async function claimModal(){
+  const c=await cfg(),goal=parseInt(c.pts_goal)||1000;
+  modal(`<h3>🎁 Réclamer mon cadeau</h3><p class="muted" style="margin-top:0">${goal} points seront retirés de votre compte. L'administrateur vérifie puis vous livre le cadeau.</p>
+  <label style="display:flex;gap:8px;align-items:center;margin:8px 0"><input type="radio" name="rwk" value="forfait" checked> ${esc(c.pts_gift||'Forfait internet 500 F')}</label>
+  <label style="display:flex;gap:8px;align-items:center;margin:8px 0"><input type="radio" name="rwk" value="boutique"> Un article de Ma boutique</label>
+  <input type="text" id="rwnote" maxlength="200" placeholder="Numéro de téléphone (forfait) ou article souhaité" style="width:100%;margin:8px 0">
+  <button class="btn" style="width:100%" data-act="rwsend">Envoyer la demande</button><button class="btn sec" style="width:100%;margin-top:8px" onclick="closeModal()">Annuler</button>`)}
+async function sendClaim(){
+  const k=(document.querySelector('input[name=rwk]:checked')||{}).value||'forfait',n=($('#rwnote')||{}).value||'';
+  const{error}=await sb.rpc('redeem_points',{p_kind:k,p_note:n});
+  if(error)return toast(error.message||'Erreur');
+  closeModal();toast('Demande envoyée ✅ L\'administrateur va la valider.');vJeux()}
+async function myRewards(){
+  const{data}=await sb.from('reward_requests').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(10);
+  const st={pending:'⏳ En attente',approved:'✅ Accepté',rejected:'❌ Refusé (points rendus)'};
+  modal(`<h3>Mes demandes de cadeau</h3>${(data||[]).length?data.map(r=>`<div class="set"><div><b>${r.kind==='forfait'?'Forfait internet':'Article boutique'}</b><div class="muted">${esc(r.note||'')} · ${new Date(r.created_at).toLocaleDateString('fr-FR')}</div></div><span>${st[r.status]}</span></div>`).join(''):'<div class="muted">Aucune demande.</div>'}<button class="btn sec" style="width:100%;margin-top:10px" onclick="closeModal()">Fermer</button>`)}
+async function decideReward(id,ok){
+  const{error}=await sb.rpc('admin_decide_reward',{p_id:id,p_ok:ok});
+  if(error)return toast(errMsg(error));
+  toast(ok?'Cadeau validé ✅':'Demande refusée, points rendus');loadAdminMoney()}
+async function lJoin(id,bo){const{data}=await sb.from('ludo_games').update({p2:S.me.id,boost2:!!bo,status:'playing',state:lNew(),updated_at:new Date().toISOString()}).eq('id',id).is('p2',null).eq('status','waiting').select();return data&&data[0]||null}
+async function lPlay(bo){lStop();$('#view').innerHTML='<div class="loading">Recherche d\'une partie…</div>';
   const me=S.me.id,r1=await sb.from('ludo_games').select('*').or(`p1.eq.${me},p2.eq.${me}`).neq('status','done').order('created_at',{ascending:false}).limit(1);
   if(r1.data&&r1.data[0])return lOpen(r1.data[0]);
-  if(!await needCoins())return go('jeux');
+  if(!await needCoins(bo))return go('jeux');
   const since=new Date(Date.now()-600000).toISOString();
   const r2=await sb.from('ludo_games').select('id').eq('status','waiting').is('p2',null).neq('p1',me).gt('created_at',since).order('created_at').limit(1);
-  if(r2.data&&r2.data[0]){const j=await lJoin(r2.data[0].id);if(j)return lOpen(j)}
-  const r3=await sb.from('ludo_games').insert({p1:me,boost1:!!S.boost}).select().single();if(r3.error)throw r3.error;lOpen(r3.data)}
+  if(r2.data&&r2.data[0]){const j=await lJoin(r2.data[0].id,bo);if(j)return lOpen(j)}
+  const r3=await sb.from('ludo_games').insert({p1:me,boost1:!!bo}).select().single();if(r3.error)throw r3.error;lOpen(r3.data)}
 function lOpen(g){lStop();LG.g=g;
   LG.ch=sb.channel('ludo-'+g.id).on('postgres_changes',{event:'UPDATE',schema:'public',table:'ludo_games',filter:'id=eq.'+g.id},p=>{if(LG.g&&p.new.id===LG.g.id){LG.g=p.new;lRender()}}).subscribe();
   LG.iv=setInterval(async()=>{const c=LG.g;if(!c||LG.busy)return;
@@ -1252,17 +1060,17 @@ async function lRender(){const g=LG.g,v=$('#view');if(!g||S.tab!=='jeux')return;
   ${g.status==='done'?'<button class="btn" data-lg="play">Rejouer</button>':`<button class="btn" data-lg="roll" ${mine&&st.dice==null?'':'disabled'}>🎲 Lancer</button>`}
   <button class="btn sec" data-lg="quit">${g.status==='done'?'Quitter':'Abandonner'}</button></div></div>`}
 document.addEventListener('click',async e=>{const el=e.target.closest('[data-lg]');if(!el)return;const a=el.dataset.lg;
-  try{if(a==='install'){closeModal();return installApp()}if(a==='open'){closeModal();return go('jeux')}if(a==='ia'){closeModal();return go('ia')}if(a==='iasend')return await iaSend();if(a==='play')return await lPlay();if(a==='roll')return await lRoll();if(a==='mv')return await lMove(+el.dataset.k);if(a==='quit')return await lQuit()}
+  try{if(a==='install'){closeModal();return installApp()}if(a==='open'){closeModal();return go('jeux')}if(a==='ia'){closeModal();return go('ia')}if(a==='iasend')return await iaSend();if(a==='play')return await lPlay(el.dataset.boost==='1');if(a==='roll')return await lRoll();if(a==='mv')return await lMove(+el.dataset.k);if(a==='quit')return await lQuit()}
   catch(err){LG.busy=false;toast(errMsg(err))}});
 
 /* ---------- JETONS ---------- */
-async function needCoins(){
-  const[b,c]=await Promise.all([sb.rpc('coin_balance'),cfg()]),cost=(parseInt(c.game_cost)||0)+(S.boost?(parseInt(c.game_boost_cost)||10):0);
+async function needCoins(bo){
+  const[b,c]=await Promise.all([sb.rpc('coin_balance'),cfg()]),cost=(parseInt(c.game_cost)||0)+(bo?(parseInt(c.game_boost_cost)||0):0);
   if((b.data||0)>=cost)return true;
   toast('Il vous faut '+cost+' jetons pour jouer.');coinsModal();return false}
 async function coinsModal(){
-  const c=await cfg(),rate=parseInt(c.coin_rate)||10,cost=parseInt(c.game_cost)||0;
-  modal(`<h3>🪙 Acheter des jetons</h3><p class="muted" style="margin-top:0">${cost>0?`Une partie coûte ${cost} jetons par joueur.`:`Les parties sont gratuites : les jetons servent au BOOST (+${parseInt(c.pts_boost_win)||50} points si tu gagnes).`} 1 jeton = ${money(rate)} FCFA.</p>
+  const c=await cfg(),rate=parseInt(c.coin_rate)||10,cost=parseInt(c.game_cost)||5;
+  modal(`<h3>🪙 Acheter des jetons</h3><p class="muted" style="margin-top:0">Une partie coûte ${cost} jetons par joueur. 1 jeton = ${money(rate)} FCFA.</p>
   ${[10,30,100].map(n=>`<div class="plusrow" data-act="coinreq" data-n="${n}" style="justify-content:space-between"><span style="font-size:16px">🪙 ${n} jetons</span><span style="font-size:16px">${money(n*rate)} FCFA</span></div>`).join('')}
   <p class="muted">${c.pay_number?`Choisissez un pack, puis payez par ${esc(c.pay_info)} au <b>${esc(c.pay_number)}</b>.`:'Choisissez un pack, puis payez l\'administrateur par Mobile Money.'} Vos jetons sont ajoutés dès que le paiement est vérifié.</p>
   <button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
@@ -1281,29 +1089,29 @@ async function decideCoins(id,ok){
 }
 
 /* ---------- MORPION & PUISSANCE 4 (2 joueurs en ligne) ---------- */
-const DG={g:null,ch:null,iv:null,busy:false},DNAME={morpion:'Morpion',p4:'Puissance 4',course:'Course de voitures'},RACE={id:null,pos:0,sent:0,last:0,go:0,timer:null,q:null,busy:false},DCOL={morpion:['#1877f2','#e41e3f'],p4:['#e41e3f','#f5c518']};
+const DG={g:null,ch:null,iv:null,busy:false},DNAME={morpion:'Morpion',p4:'Puissance 4'},DCOL={morpion:['#1877f2','#e41e3f'],p4:['#e41e3f','#f5c518']};
 const dMe=()=>DG.g.p1===S.me.id?0:1;
-const dNew=k=>k==='course'?{pos:[0,0],t:[null,null],winner:null,msg:''}:({b:Array(k==='p4'?42:9).fill(-1),turn:0,winner:null,msg:''});
+const dNew=k=>({b:Array(k==='p4'?42:9).fill(-1),turn:0,winner:null,msg:''});
 function dWin(k,b,pl){
   const lines=[];
   if(k==='morpion')[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]].forEach(l=>lines.push(l));
   else for(let r=0;r<6;r++)for(let c=0;c<7;c++)[[0,1],[1,0],[1,1],[1,-1]].forEach(([dr,dc])=>{
     const e=[];for(let i=0;i<4;i++){const rr=r+dr*i,cc=c+dc*i;if(rr<0||rr>5||cc<0||cc>6)return;e.push(rr*7+cc)}lines.push(e)});
   return lines.find(l=>l.every(i=>b[i]===pl))||null}
-function dStop(){clearInterval(DG.iv);clearTimeout(RACE.timer);clearTimeout(RACE.q);RACE.q=null;RACE.id=null;if(DG.ch){sb.removeChannel(DG.ch);DG.ch=null}const g=DG.g;DG.g=null;
+function dStop(){clearInterval(DG.iv);if(DG.ch){sb.removeChannel(DG.ch);DG.ch=null}const g=DG.g;DG.g=null;
   if(g&&g.status==='waiting'&&S.me&&g.p1===S.me.id)sb.from('duo_games').delete().eq('id',g.id).eq('status','waiting').then(()=>{})}
-async function dJoin(kind,id){
-  const{data,error}=await sb.from('duo_games').update({p2:S.me.id,boost2:!!S.boost,status:'playing',state:dNew(kind),updated_at:new Date().toISOString()}).eq('id',id).is('p2',null).eq('status','waiting').select();
+async function dJoin(kind,id,bo){
+  const{data,error}=await sb.from('duo_games').update({p2:S.me.id,boost2:!!bo,status:'playing',state:dNew(kind),updated_at:new Date().toISOString()}).eq('id',id).is('p2',null).eq('status','waiting').select();
   if(error)throw error;return data&&data[0]||null}
-async function dPlay(kind){
+async function dPlay(kind,bo){
   dStop();$('#view').innerHTML='<div class="loading">Recherche d\'une partie…</div>';
   const me=S.me.id,r1=await sb.from('duo_games').select('*').eq('kind',kind).or(`p1.eq.${me},p2.eq.${me}`).neq('status','done').order('created_at',{ascending:false}).limit(1);
   if(r1.data&&r1.data[0])return dOpen(r1.data[0]);
-  if(!await needCoins())return go('jeux');
+  if(!await needCoins(bo))return go('jeux');
   const since=new Date(Date.now()-600000).toISOString();
   const r2=await sb.from('duo_games').select('id').eq('kind',kind).eq('status','waiting').is('p2',null).neq('p1',me).gt('created_at',since).order('created_at').limit(1);
-  if(r2.data&&r2.data[0]){const j=await dJoin(kind,r2.data[0].id);if(j)return dOpen(j)}
-  const r3=await sb.from('duo_games').insert({kind,p1:me,boost1:!!S.boost}).select().single();if(r3.error)throw r3.error;dOpen(r3.data)}
+  if(r2.data&&r2.data[0]){const j=await dJoin(kind,r2.data[0].id,bo);if(j)return dOpen(j)}
+  const r3=await sb.from('duo_games').insert({kind,p1:me,boost1:!!bo}).select().single();if(r3.error)throw r3.error;dOpen(r3.data)}
 function dOpen(g){dStop();DG.g=g;
   DG.ch=sb.channel('duo-'+g.id).on('postgres_changes',{event:'UPDATE',schema:'public',table:'duo_games',filter:'id=eq.'+g.id},p=>{if(DG.g&&p.new.id===DG.g.id){DG.g=p.new;dRender()}}).subscribe();
   DG.iv=setInterval(async()=>{const c=DG.g;if(!c||DG.busy)return;
@@ -1336,59 +1144,11 @@ function dBoard(g,can){
   const k=g.kind,b=g.state.b,line=g.state.line||[],col=DCOL[k];
   if(k==='morpion')return`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:300px;margin:auto">${b.map((v,i)=>`<button data-dg="mv" data-i="${i}" ${can&&v===-1?'':'disabled'} style="aspect-ratio:1;border:0;border-radius:12px;background:var(--soft);font-size:44px;font-weight:700;color:${v<0?'inherit':col[v]};${line.includes(i)?'outline:4px solid #f5a623':''}">${v<0?'':['✕','◯'][v]}</button>`).join('')}</div>`;
   return`<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;max-width:360px;margin:auto;background:#1877f2;padding:8px;border-radius:14px">${b.map((v,i)=>`<button data-dg="mv" data-i="${i%7}" ${can?'':'disabled'} style="aspect-ratio:1;border:0;border-radius:50%;padding:0;background:${v<0?'var(--card)':col[v]};${line.includes(i)?'box-shadow:0 0 0 4px #fff':''}"></button>`).join('')}</div>`}
-/* ---------- COURSE DE VOITURES ---------- */
-const RACE_CAR=c=>`<svg viewBox="0 0 40 20" width="44" height="22" style="display:block"><rect x="2" y="8" width="36" height="8" rx="3" fill="${c}"/><rect x="10" y="2" width="18" height="8" rx="3" fill="${c}"/><rect x="13" y="4" width="12" height="4" rx="1.5" fill="#cfe8ff"/><circle cx="11" cy="17" r="3.2" fill="#222"/><circle cx="29" cy="17" r="3.2" fill="#222"/></svg>`;
-const raceLane=(id,c,label)=>`<div class="muted" style="margin-top:6px">${label}</div><div style="position:relative;height:40px;background:var(--soft);border-radius:10px;margin:4px 0 8px;overflow:hidden"><div style="position:absolute;right:6px;top:8px;font-size:20px">🏁</div><div id="${id}" style="position:absolute;top:9px;left:0;transition:left .2s linear">${RACE_CAR(c)}</div></div>`;
-function raceSetCar(id,p){const e=$(id);if(e)e.style.left='calc((100% - 44px) * '+(Math.max(0,Math.min(100,p))/100)+')'}
-function raceCount(){
-  clearTimeout(RACE.timer);
-  const m=$('#race_msg'),g=DG.g;if(!m||!g||g.status!=='playing'||RACE.id!==g.id)return;
-  const left=RACE.go-Date.now();
-  if(left>0){m.textContent=String(Math.ceil(left/1000));RACE.timer=setTimeout(raceCount,100);return}
-  m.textContent='GO ! 👆'}
-function raceTap(){
-  const g=DG.g;if(!g||g.status!=='playing'||RACE.id!==g.id||Date.now()<RACE.go||RACE.pos>=100)return;
-  RACE.pos=Math.min(100,RACE.pos+2);raceSetCar('#car_m',RACE.pos);
-  raceSend(RACE.pos>=100)}
-function raceSend(force){
-  const now=Date.now();
-  if(RACE.busy)return;
-  if(!force&&now-RACE.last<250){if(!RACE.q)RACE.q=setTimeout(()=>{RACE.q=null;raceSend(false)},250-(now-RACE.last)+5);return}
-  const g=DG.g;if(!g||g.status!=='playing')return;
-  RACE.busy=true;RACE.last=now;RACE.sent=RACE.pos;const id=g.id,p=RACE.pos;
-  sb.rpc('race_tap',{p_game:id,p_pos:p}).then(({data,error})=>{
-    RACE.busy=false;
-    if(error)return toast(errMsg(error));
-    const c=DG.g;if(!c||c.id!==id||!data)return;
-    const me=dMe(),srv=(data.pos&&data.pos[me])||0;
-    DG.g={...c,state:data,status:data.winner!=null?'done':c.status};
-    RACE.pos=Math.min(RACE.pos,srv+12);
-    dRender();
-    if(DG.g&&DG.g.status==='playing'&&RACE.pos>RACE.sent)raceSend(false)})}
-function raceRender(g,oid){
-  const v=$('#view'),me=dMe(),st=g.state||{},pos=st.pos||[0,0],opp=S.cache[oid]||{};
-  if(RACE.id!==g.id){
-    RACE.id=g.id;RACE.pos=0;RACE.sent=0;RACE.last=0;RACE.busy=false;RACE.go=Date.now()+3000;
-    v.innerHTML=`<div class="card" id="race"><div class="ph" style="margin:0 0 6px">${av(opp,36)}<div><b>${esc(name(opp))}</b><span class="muted">Course de voitures · le premier arrivé gagne</span></div></div>`
-    +raceLane('car_o','#e41e3f',esc(name(opp)))+raceLane('car_m','#1877f2','Toi')
-    +`<div id="race_msg" style="text-align:center;font-weight:800;font-size:24px;margin:8px 0;min-height:32px"></div>
-    <button class="btn" id="race_btn" style="width:100%;height:130px;font-size:26px;font-weight:800;border-radius:18px;touch-action:manipulation;user-select:none;-webkit-user-select:none">TAPE ! TAPE ! TAPE !</button>
-    <div class="row" id="race_end" style="justify-content:center;margin-top:12px"><button class="btn sec" data-dg="quit">Abandonner</button></div></div>`;
-    $('#race_btn').onpointerdown=e=>{e.preventDefault();raceTap()};
-    raceCount()}
-  raceSetCar('#car_o',pos[1-me]||0);
-  if(g.status==='done'){
-    clearTimeout(RACE.timer);
-    raceSetCar('#car_m',pos[me]||0);
-    const m=$('#race_msg');if(m)m.textContent=st.winner===me?'🏆 Tu as gagné !':'😕 '+name(opp)+' a gagné'+(st.msg==='Abandon'?' (abandon)':'');
-    const b=$('#race_btn');if(b)b.disabled=true;
-    const en=$('#race_end');if(en)en.innerHTML=`<button class="btn" data-dg="play" data-k="${g.kind}">Rejouer</button><button class="btn sec" data-dg="quit">Quitter</button>`}}
 async function dRender(){const g=DG.g,v=$('#view');if(!g||S.tab!=='jeux')return;
   const me=dMe(),st=g.state||{},oid=me===0?g.p2:g.p1;
   if(oid&&!S.cache[oid]){const r=await sb.from('profiles').select('*').eq('id',oid).maybeSingle();S.cache[oid]=r.data||{id:oid}}
   if(DG.g!==g)return dRender();
   if(g.status==='waiting'){v.innerHTML=`<div class="card" style="text-align:center"><div style="font-size:48px">⏳</div><h3>Recherche d'un adversaire…</h3><div class="muted" style="margin-bottom:12px">La partie démarre dès qu'un autre joueur appuie sur « Jouer ».</div><button class="btn sec" data-dg="quit">Annuler</button></div>`;return}
-  if(g.kind==='course')return raceRender(g,oid);
   const opp=S.cache[oid],mine=g.status==='playing'&&st.turn===me,mk=g.kind==='p4'?['🔴','🟡']:['✕','◯'];
   let t;if(g.status==='done')t=st.winner===me?'🏆 Tu as gagné !':st.winner===-1?'🤝 Match nul':'😕 '+esc(name(opp))+' a gagné'+(st.msg==='Abandon'?' (abandon)':'');
   else t=mine?'À toi de jouer !':'Tour de '+esc(name(opp))+'…';
@@ -1396,7 +1156,7 @@ async function dRender(){const g=DG.g,v=$('#view');if(!g||S.tab!=='jeux')return;
   <div class="card" style="text-align:center"><div style="font-weight:700;margin-bottom:10px">${t}</div>${dBoard(g,mine)}
   <div class="row" style="justify-content:center;margin-top:14px">${g.status==='done'?`<button class="btn" data-dg="play" data-k="${g.kind}">Rejouer</button>`:''}<button class="btn sec" data-dg="quit">${g.status==='done'?'Quitter':'Abandonner'}</button></div></div>`}
 document.addEventListener('click',async e=>{const el=e.target.closest('[data-dg]');if(!el)return;const a=el.dataset.dg;
-  try{if(a==='play')return await dPlay(el.dataset.k);if(a==='mv')return await dMove(+el.dataset.i);if(a==='quit')return await dQuit()}
+  try{if(a==='play')return await dPlay(el.dataset.k,el.dataset.boost==='1');if(a==='mv')return await dMove(+el.dataset.i);if(a==='quit')return await dQuit()}
   catch(err){DG.busy=false;toast(errMsg(err))}});
 
 /* ---------- événements ---------- */
@@ -1438,8 +1198,7 @@ document.addEventListener('click',async e=>{
    case'prod':return prodModal(id);
    case'fav':{const k=String(id);if(S.favs.has(k)){await sb.from('favorites').delete().eq('product_id',k).eq('user_id',S.me.id);S.favs.delete(k);el.textContent='🤍 Favori'}else{const{error}=await sb.from('favorites').insert({user_id:S.me.id,product_id:k});if(error)return toast(error.message);S.favs.add(k);el.textContent='❤️ Favori'}return}
    case'boost':return boostModal(id);
-   case'sold':{const s=el.dataset.s==='1';const{error}=await sb.from('products').update({sold:s,sold_at:s?new Date().toISOString():null}).eq('id',id);if(error)return toast(errMsg(error));await vShop();if(s)commissionModal(id);return}
-   case'comok':return confirmCommission(id);
+   case'sold':{const s=el.dataset.s==='1';await sb.from('products').update({sold:s,sold_at:s?new Date().toISOString():null}).eq('id',id);return vShop()}
    case'editprod':return prodForm(S.products.find(p=>String(p.id)===String(id)));
    case'myshop':S.shopTab='mine';return go('shop');
    case'bokok':return approveBoost(id);
@@ -1463,24 +1222,14 @@ document.addEventListener('click',async e=>{
    case'copycode':{try{await navigator.clipboard.writeText(S.myCode);toast('Code copié ✅')}catch(_){toast('Code : '+S.myCode)}return}
    case'regencode':if(!confirm('Changer votre code ? L\'ancien ne fonctionnera plus.'))return;return showMyCode(true);
    case'buycoins':return coinsModal();
-   case'boostsw':S.boost=!S.boost;return vJeux();
-   case'reward':return rewardModal();
-   case'rok':return decideReward(id,true);
-   case'rno':return decideReward(id,false);
    case'coinreq':return requestCoins(+el.dataset.n);
+   case'claim':return claimModal();
+   case'rwsend':return sendClaim();
+   case'myrewards':return myRewards();
+   case'rwok':return decideReward(id,true);
+   case'rwno':return decideReward(id,false);
    case'cok':return decideCoins(id,true);
    case'cno':return decideCoins(id,false);
-   case'premreq':return requestPremium();
-   case'newad':closeModal();return adForm();
-   case'adclick':return adClick(id);
-   case'adok':return decideAd(id,true);
-   case'adno':return decideAd(id,false);
-   case'report':return reportModal(id,el.dataset.k);
-   case'rpdel':return decideReport(id,true);
-   case'rpok':return decideReport(id,false);
-   case'rules':return rulesModal();
-   case'pok':return decidePremium(id,true);
-   case'pno':return decidePremium(id,false);
    case'logout':clearInterval(S.hb);if(S.rt)sb.removeChannel(S.rt);await sb.auth.signOut();return
   }}catch(err){toast('Erreur : '+(err.message||err))}
 });
