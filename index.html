@@ -135,7 +135,7 @@ const S={me:null,profile:null,settings:null,cache:{},fr:[],tab:'fil',filter:'all
 
 /* ---------- utilitaires ---------- */
 function toast(m){let t=$('#toast');if(t)t.remove();t=document.createElement('div');t.id='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2600)}
-function errMsg(e){const m=String(e?.message||e||'');return /POINTS_INSUFFISANTS/.test(m)?'Jetons insuffisants.':'Erreur : '+m}
+function errMsg(e){const m=String(e?.message||e||'');return /POINTS_INSUFFISANTS/.test(m)?'Jetons insuffisants.':/COMMISSION_IMPAYEE/.test(m)?'Paie d\'abord ta commission de vente pour publier un nouvel article.':'Erreur : '+m}
 function name(p){return p?.full_name||p?.username||'Utilisateur'}
 function av(p,s=40){const n=name(p);return p?.avatar_url?`<img class="av" style="width:${s}px;height:${s}px" src="${esc(p.avatar_url)}" alt="">`:`<span class="av ini" style="width:${s}px;height:${s}px;font-size:${Math.round(s*.4)}px">${esc(n.slice(0,1).toUpperCase())}</span>`}
 function ago(d){const s=(Date.now()-new Date(d))/1000;if(s<60)return"à l'instant";if(s<3600)return Math.floor(s/60)+' min';if(s<86400)return Math.floor(s/3600)+' h';if(s<604800)return Math.floor(s/86400)+' j';return new Date(d).toLocaleDateString('fr-FR')}
@@ -607,7 +607,7 @@ async function vShop(){
     sb.from('boost_requests').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}),
     sb.from('favorites').select('product_id').eq('user_id',S.me.id)]);
   S.products=pr.data||[];S.boostReq=br.data||[];S.favs=new Set((fv.data||[]).map(f=>String(f.product_id)));
-  await cfg();shopView();
+  await cfg();shopView();commissionBanner();
 }
 function shopGrid(){
   let l=S.products.filter(p=>!p.sold);
@@ -642,7 +642,7 @@ async function prodModal(id){
 }
 function prodForm(p){
   const e=!!p;
-  modal(`<h3>${e?'Modifier l\'article':'Vendre un article'}</h3>
+  modal(`<h3>${e?'Modifier l\'article':'Vendre un article'}</h3>${e?'':'<p class="muted" style="margin-top:0">Commission de 10 % à verser à Urbain après chaque vente.</p>'}
   <input type="text" id="pn" placeholder="Nom de l'article" value="${esc(p?.name||'')}">
   <input type="number" id="pp" placeholder="Prix (FCFA)" inputmode="numeric" value="${p?esc(p.price):''}">
   <select id="pcat">${CATS.map(c=>`<option ${p?.category===c?'selected':''}>${c}</option>`).join('')}</select>
@@ -685,7 +685,17 @@ async function boostModal(id){
 }
 
 /* ---------- argent (administrateur) ---------- */
-async function loadAdminMoney(){await loadAdminMoney0();await loadRewardsAdmin()}
+async function loadAdminMoney(){await loadAdminMoney0();await loadCommissionsAdmin();await loadRewardsAdmin()}
+async function commissionModal(id){const[c,r]=await Promise.all([cfg(),sb.from('sales').select('*').eq('product_id',id).eq('status','due').order('created_at',{ascending:false}).limit(1)]),s=(r.data||[])[0];
+  if(!s)return;modal(`<h3>✅ Article vendu</h3><p>Ta commission de ${esc(c.shop_commission||10)} % est de <b>${money(s.commission)} ${esc(s.currency||'FCFA')}</b>.</p><p class="muted">Envoie-la par ${esc(c.pay_info)}${c.pay_number?' au <b>'+esc(c.pay_number)+'</b>':''}. Elle est marquée payée dès que l'administrateur l'a reçue.</p><button class="btn" style="width:100%" onclick="closeModal()">OK</button>`)}
+async function commissionBanner(){const{data}=await sb.from('sales').select('*').eq('seller_id',S.me.id).eq('status','due'),l=data||[];if(!l.length||S.tab!=='shop')return;
+  const c=await cfg(),tot=l.reduce((s,x)=>s+Number(x.commission),0);
+  $('#view').insertAdjacentHTML('afterbegin',`<div class="card" style="border-left:4px solid #f5a623"><b>💸 Commission à verser : ${money(tot)} FCFA</b><div class="muted">${l.length} vente(s) · ${esc(c.shop_commission||10)} % de chaque vente. Envoie-la par ${esc(c.pay_info)}${c.pay_number?' au <b>'+esc(c.pay_number)+'</b>':''}. Sans paiement sous ${esc(c.commission_grace_days||7)} jours, tu ne pourras plus publier de nouvel article.</div></div>`)}
+async function loadCommissionsAdmin(){const box=$('#money');if(!box)return;
+  const{data}=await sb.from('sales').select('*').eq('status','due').order('created_at'),l=data||[];await getProfiles(l.map(r=>r.seller_id));
+  const tot=l.reduce((s,x)=>s+Number(x.commission),0);
+  box.insertAdjacentHTML('beforeend',`<h4>Commissions à encaisser (${l.length}) · ${money(tot)} FCFA</h4>`+(l.length?l.map(r=>`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(name(S.cache[r.seller_id]))}</b><div class="muted">${esc(r.product_name||'Article')} · vendu ${money(r.amount)} · commission ${money(r.commission)} FCFA · ${ago(r.created_at)}</div></div><button class="btn sm" data-act="comok" data-id="${r.id}">Reçu ✅</button></div>`).join(''):'<div class="muted">Aucune commission en attente.</div>'))}
+async function confirmCommission(id){const{error}=await sb.rpc('admin_confirm_commission',{p_id:id});if(error)return toast(errMsg(error));toast('Commission encaissée ✅');loadAdminMoney()}
 async function loadAdminMoney0(){
   const box=$('#money');if(!box)return;
   const[{data:br},{data:cr},c]=await Promise.all([sb.from('boost_requests').select('*').order('created_at',{ascending:false}).limit(150),sb.from('coin_requests').select('*').order('created_at',{ascending:false}).limit(150),cfg()]);
@@ -1189,7 +1199,8 @@ document.addEventListener('click',async e=>{
    case'prod':return prodModal(id);
    case'fav':{const k=String(id);if(S.favs.has(k)){await sb.from('favorites').delete().eq('product_id',k).eq('user_id',S.me.id);S.favs.delete(k);el.textContent='🤍 Favori'}else{const{error}=await sb.from('favorites').insert({user_id:S.me.id,product_id:k});if(error)return toast(error.message);S.favs.add(k);el.textContent='❤️ Favori'}return}
    case'boost':return boostModal(id);
-   case'sold':{const s=el.dataset.s==='1';await sb.from('products').update({sold:s,sold_at:s?new Date().toISOString():null}).eq('id',id);return vShop()}
+   case'sold':{const s=el.dataset.s==='1';const{error}=await sb.from('products').update({sold:s,sold_at:s?new Date().toISOString():null}).eq('id',id);if(error)return toast(errMsg(error));await vShop();if(s)commissionModal(id);return}
+   case'comok':return confirmCommission(id);
    case'editprod':return prodForm(S.products.find(p=>String(p.id)===String(id)));
    case'myshop':S.shopTab='mine';return go('shop');
    case'bokok':return approveBoost(id);
