@@ -136,7 +136,7 @@ const S={me:null,profile:null,settings:null,cache:{},fr:[],tab:'fil',filter:'all
 /* ---------- utilitaires ---------- */
 function toast(m){let t=$('#toast');if(t)t.remove();t=document.createElement('div');t.id='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2600)}
 function errMsg(e){const m=String(e?.message||e||'');return /POINTS_INSUFFISANTS/.test(m)?'Jetons insuffisants.':/COMMISSION_IMPAYEE/.test(m)?'Paie d\'abord ta commission de vente pour publier un nouvel article.':'Erreur : '+m}
-function name(p){return p?.full_name||p?.username||'Utilisateur'}
+function name(p){const n=p?.full_name||p?.username||'Utilisateur';return p&&S.vip&&S.vip.has(p.id)?n+' 👑':n}
 function av(p,s=40){const n=name(p);return p?.avatar_url?`<img class="av" style="width:${s}px;height:${s}px" src="${esc(p.avatar_url)}" alt="">`:`<span class="av ini" style="width:${s}px;height:${s}px;font-size:${Math.round(s*.4)}px">${esc(n.slice(0,1).toUpperCase())}</span>`}
 function ago(d){const s=(Date.now()-new Date(d))/1000;if(s<60)return"à l'instant";if(s<3600)return Math.floor(s/60)+' min';if(s<86400)return Math.floor(s/3600)+' h';if(s<604800)return Math.floor(s/86400)+' j';return new Date(d).toLocaleDateString('fr-FR')}
 function hm(d){return new Date(d).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}
@@ -187,7 +187,7 @@ async function boot(user){
   let{data:st}=await sb.from('user_settings').select('*').eq('user_id',user.id).maybeSingle();
   if(!st){const r=await sb.from('user_settings').insert({user_id:user.id}).select().single();st=r.data||{}}
   S.settings=st;applyTheme();
-  await loadFriends();
+  await loadFriends();await loadVip().catch(()=>{});
   shell();go('fil');subscribe();refreshBadges();heartbeat();
   usePendingCode();
 }
@@ -274,8 +274,8 @@ async function showMyCode(regen){
   const{data,error}=await sb.rpc(regen?'regen_friend_code':'my_friend_code');
   if(error){box.textContent=errMsg(error);return}
   S.myCode=data;
-  const msg=encodeURIComponent(friendMsg(data));
-  box.innerHTML=`<div style="text-align:center;font-family:monospace;font-size:32px;letter-spacing:3px;font-weight:700;margin:6px 0;color:var(--tx)">${esc(data.slice(0,4)+'-'+data.slice(4))}</div><p class="muted" style="text-align:center;margin:0 0 10px">Envoyez ce code à un ami : dès qu'il le saisit, vous devenez amis et pouvez vous écrire.</p><div class="row"><button class="btn" data-act="copycode" style="flex:1">Copier</button><a class="btn" style="flex:1;text-align:center;background:#25d366;text-decoration:none" target="_blank" rel="noopener" href="https://wa.me/?text=${msg}">WhatsApp</a></div><div style="text-align:center;margin-top:8px"><button class="btn sec sm" data-act="regencode">Changer mon code</button></div>`;
+  const c=await cfg(),msg=encodeURIComponent(friendMsg(data));
+  box.innerHTML=`<div style="text-align:center;font-family:monospace;font-size:32px;letter-spacing:3px;font-weight:700;margin:6px 0;color:var(--tx)">${esc(data.slice(0,4)+'-'+data.slice(4))}</div><p class="muted" style="text-align:center;margin:0 0 10px">Envoyez ce code à un ami : dès qu'il le saisit, vous devenez amis et pouvez vous écrire.</p><p class="muted" style="text-align:center;margin:0 0 10px"><b>🎁 Gagnez ${esc(c.referral_coins||5)} jetons</b> dès que votre ami fait son premier achat de jetons ou son abonnement Premium.</p><div class="row"><button class="btn" data-act="copycode" style="flex:1">Copier</button><a class="btn" style="flex:1;text-align:center;background:#25d366;text-decoration:none" target="_blank" rel="noopener" href="https://wa.me/?text=${msg}">WhatsApp</a></div><div style="text-align:center;margin-top:8px"><button class="btn sec sm" data-act="regencode">Changer mon code</button></div><div id="refst" class="muted" style="text-align:center;margin-top:8px"></div>`;refStats();
 }
 async function amisList(q){
   const box=$('#amis');if(!box)return;
@@ -541,7 +541,7 @@ function newEvent(){
 }
 
 /* ---------- notifications ---------- */
-const notifText=t=>({like:'a aimé votre publication',comment:'a commenté votre publication',friend_request:'vous a envoyé une demande d\'ami',friend_accept:'a accepté votre demande d\'ami',friend_code:'vous a ajouté grâce à votre code d\'ami'})[t]||'a interagi avec vous';
+const notifText=t=>({like:'a aimé votre publication',comment:'a commenté votre publication',friend_request:'vous a envoyé une demande d\'ami',friend_accept:'a accepté votre demande d\'ami',friend_code:'vous a ajouté grâce à votre code d\'ami',referral:'a fait son premier achat grâce à vous : jetons offerts 🎁'})[t]||'a interagi avec vous';
 const notifOn=t=>{const s=S.settings||{};return t==='like'?s.notify_likes!==false:t==='comment'?s.notify_comments!==false:(t==='friend_request'||t==='friend_accept'||t==='friend_code')?s.notify_friend_requests!==false:true};
 async function vNotifs(){
   const{data}=await sb.from('notifications').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(60);
@@ -556,6 +556,36 @@ const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v===null?d:v}ca
 const money=n=>Number(n||0).toLocaleString('fr-FR');
 const boosted=p=>!!(p.boosted_until&&new Date(p.boosted_until)>new Date());
 const CATS=['Mode','Électronique','Maison','Auto','Beauté','Alimentation','Services','Autre'];
+/* ---------- PREMIUM & PARRAINAGE ---------- */
+async function loadVip(){
+  const{data}=await sb.from('subscriptions').select('user_id').gt('premium_until',new Date().toISOString());
+  S.vip=new Set((data||[]).map(r=>r.user_id))}
+async function premiumCard(){
+  const box=$('#premcard');if(!box)return;
+  const[c,rq,sb2]=await Promise.all([cfg(),sb.from('premium_requests').select('*').eq('user_id',S.me.id).eq('status','pending').limit(1),sb.from('subscriptions').select('premium_until').eq('user_id',S.me.id).maybeSingle()]);
+  const sub=sb2.data,pend=(rq.data||[])[0],active=sub&&new Date(sub.premium_until)>new Date();
+  const perks=`<ul class="muted" style="margin:6px 0 10px 18px;padding:0"><li>Badge 👑 à côté de votre nom</li><li>${esc(c.premium_coins||30)} jetons offerts à chaque mois</li><li>Aucune publicité</li></ul>`;
+  box.innerHTML=`<h4>👑 Urbain Premium</h4>`+(active?`<div class="set"><b>Abonnement actif</b><span class="muted">jusqu'au ${new Date(sub.premium_until).toLocaleDateString('fr-FR')}</span></div>`:'')+perks
+  +(pend?`<div class="muted">Demande en attente : payez ${money(pend.amount)} FCFA par ${esc(c.pay_info)}${c.pay_number?' au <b>'+esc(c.pay_number)+'</b>':''}. Votre abonnement démarre dès que le paiement est vérifié.</div>`
+  :`<button class="btn" style="width:100%" data-act="premreq">${active?'Prolonger de 30 jours':'S\'abonner'} · ${money(c.premium_price||500)} FCFA / mois</button>`)}
+async function requestPremium(){
+  const{data,error}=await sb.rpc('request_premium');if(error)return toast(errMsg(error));
+  const c=await cfg();
+  modal(`<h3>Demande envoyée ✅</h3><p>Payez <b>${money(data)} FCFA</b> ${c.pay_number?`par ${esc(c.pay_info)} au <b>${esc(c.pay_number)}</b>`:'à l\'administrateur par Mobile Money'}.</p><p class="muted">Votre abonnement Premium démarre dès que le paiement est vérifié.</p><button class="btn" style="width:100%" onclick="closeModal()">OK</button>`);
+  premiumCard()}
+async function decidePremium(id,ok){
+  const{error}=await sb.rpc('admin_decide_premium',{p_id:id,p_ok:ok});
+  if(error)return toast(errMsg(error));
+  toast(ok?'Premium activé ✅':'Demande refusée');loadAdminMoney()}
+async function loadPremiumAdmin(){
+  const box=$('#money');if(!box)return;
+  const{data}=await sb.from('premium_requests').select('*').eq('status','pending').order('created_at');const l=data||[];
+  await getProfiles(l.map(r=>r.user_id));
+  box.insertAdjacentHTML('beforeend',`<h4>Abonnements Premium à valider (${l.length})</h4>`+(l.length?l.map(r=>`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(name(S.cache[r.user_id]))}</b><div class="muted">${money(r.amount)} FCFA · ${ago(r.created_at)}</div></div><div class="row"><button class="btn sm" data-act="pok" data-id="${r.id}">Valider</button><button class="btn sec sm" data-act="pno" data-id="${r.id}">Refuser</button></div></div>`).join(''):'<div class="muted">Aucune demande en attente.</div>'))}
+async function refStats(){
+  const el=$('#refst');if(!el)return;
+  const{data}=await sb.rpc('referral_stats');if(!data||!data.invited)return;
+  el.textContent=`${data.invited} ami(s) invité(s) · ${data.earned} ont acheté · ${data.coins} jetons gagnés`}
 async function cfg(){
   if(S.cfg&&Date.now()-(S.cfgT||0)<60000)return S.cfg;
   const c={boost_price:'500',pay_number:'',pay_info:'Mobile Money',coin_rate:'10',game_cost:'5',welcome_coins:'10'};
@@ -685,7 +715,7 @@ async function boostModal(id){
 }
 
 /* ---------- argent (administrateur) ---------- */
-async function loadAdminMoney(){await loadAdminMoney0();await loadCommissionsAdmin();await loadRewardsAdmin()}
+async function loadAdminMoney(){await loadAdminMoney0();await loadCommissionsAdmin();await loadRewardsAdmin();await loadPremiumAdmin()}
 async function commissionModal(id){const[c,r]=await Promise.all([cfg(),sb.from('sales').select('*').eq('product_id',id).eq('status','due').order('created_at',{ascending:false}).limit(1)]),s=(r.data||[])[0];
   if(!s)return;modal(`<h3>✅ Article vendu</h3><p>Ta commission de ${esc(c.shop_commission||10)} % est de <b>${money(s.commission)} ${esc(s.currency||'FCFA')}</b>.</p><p class="muted">Envoie-la par ${esc(c.pay_info)}${c.pay_number?' au <b>'+esc(c.pay_number)+'</b>':''}. Elle est marquée payée dès que l'administrateur l'a reçue.</p><button class="btn" style="width:100%" onclick="closeModal()">OK</button>`)}
 async function commissionBanner(){const{data}=await sb.from('sales').select('*').eq('seller_id',S.me.id).eq('status','due'),l=data||[];if(!l.length||S.tab!=='shop')return;
@@ -698,17 +728,17 @@ async function loadCommissionsAdmin(){const box=$('#money');if(!box)return;
 async function confirmCommission(id){const{error}=await sb.rpc('admin_confirm_commission',{p_id:id});if(error)return toast(errMsg(error));toast('Commission encaissée ✅');loadAdminMoney()}
 async function loadAdminMoney0(){
   const box=$('#money');if(!box)return;
-  const[{data:br},{data:cr},c]=await Promise.all([sb.from('boost_requests').select('*').order('created_at',{ascending:false}).limit(150),sb.from('coin_requests').select('*').order('created_at',{ascending:false}).limit(150),cfg()]);
+  const[{data:br},{data:cr},{data:pr},c]=await Promise.all([sb.from('boost_requests').select('*').order('created_at',{ascending:false}).limit(150),sb.from('coin_requests').select('*').order('created_at',{ascending:false}).limit(150),sb.from('premium_requests').select('*').eq('status','approved').order('created_at',{ascending:false}).limit(150),cfg()]);
   const list=br||[],ok=list.filter(b=>b.status==='approved'),pend=list.filter(b=>b.status==='pending');
   const cok=(cr||[]).filter(r=>r.status==='approved'),cpend=(cr||[]).filter(r=>r.status==='pending');
   await getProfiles(cpend.map(r=>r.user_id));
   const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);
   const sum=(a,d)=>a.filter(x=>!d||new Date(x.decided_at||x.created_at)>=d).reduce((s,x)=>s+x.amount,0);
-  const tot=sum(ok)+sum(cok),mon=sum(ok,m0)+sum(cok,m0),monC=sum(cok,m0);
+  const pok=pr||[],tot=sum(ok)+sum(cok)+sum(pok),mon=sum(ok,m0)+sum(cok,m0)+sum(pok,m0),monC=sum(cok,m0),monP=sum(pok,m0);
   const pn={};
   if(pend.length){const{data}=await sb.from('products').select('id,name,user_id').in('id',[...new Set(pend.map(b=>b.product_id))]);(data||[]).forEach(p=>pn[String(p.id)]=p);await getProfiles((data||[]).map(p=>p.user_id))}
-  box.innerHTML=`<div class="set"><div><b>Revenus du mois</b><div class="muted">Total depuis le début : ${money(tot)} FCFA · dont jetons ce mois : ${money(monC)} FCFA</div></div><b style="font-size:20px;color:var(--pr)">${money(mon)} FCFA</b></div>
-  <div class="set"><div><b>Tarifs et paiement</b><div class="muted">Boost : ${money(c.boost_price)} FCFA/jour · Jeton : ${money(c.coin_rate)} FCFA · Partie : ${money(c.game_cost)} jetons/joueur · Offerts à l'inscription : ${money(c.welcome_coins)}<br>${esc(c.pay_info)} ${c.pay_number?esc(c.pay_number):'(numéro non renseigné)'}</div></div><button class="btn sec sm" data-act="payset">Modifier</button></div>
+  box.innerHTML=`<div class="set"><div><b>Revenus du mois</b><div class="muted">Total depuis le début : ${money(tot)} FCFA · dont jetons ce mois : ${money(monC)} FCFA · Premium : ${money(monP)} FCFA</div></div><b style="font-size:20px;color:var(--pr)">${money(mon)} FCFA</b></div>
+  <div class="set"><div><b>Tarifs et paiement</b><div class="muted">Boost : ${money(c.boost_price)} FCFA/jour · Jeton : ${money(c.coin_rate)} FCFA · Partie : ${money(c.game_cost)} jetons/joueur · Offerts à l'inscription : ${money(c.welcome_coins)} · Premium : ${money(c.premium_price||500)} FCFA/mois (+${money(c.premium_coins||30)} jetons) · Parrainage : ${money(c.referral_coins||5)} jetons<br>${esc(c.pay_info)} ${c.pay_number?esc(c.pay_number):'(numéro non renseigné)'}</div></div><button class="btn sec sm" data-act="payset">Modifier</button></div>
   <h4>Jetons à valider (${cpend.length})</h4>${cpend.length?cpend.map(r=>`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(name(S.cache[r.user_id]))}</b><div class="muted">${r.coins} jetons · ${money(r.amount)} FCFA</div></div><div class="row"><button class="btn sm" data-act="cok" data-id="${r.id}">Valider</button><button class="btn sec sm" data-act="cno" data-id="${r.id}">Refuser</button></div></div>`).join(''):'<div class="muted">Aucune demande en attente.</div>'}
   <h4>Boosts à valider (${pend.length})</h4>${pend.length?pend.map(b=>{const p=pn[b.product_id];return`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(p?.name||'Article supprimé')}</b><div class="muted">${esc(name(S.cache[p?.user_id]))} · ${b.days} j · ${money(b.amount)} FCFA</div></div><div class="row"><button class="btn sm" data-act="bokok" data-id="${b.id}">Valider</button><button class="btn sec sm" data-act="bokno" data-id="${b.id}">Refuser</button></div></div>`}).join(''):'<div class="muted">Aucune demande en attente.</div>'}`;
 }
@@ -724,11 +754,11 @@ async function approveBoost(id){
 }
 async function paySet(){
   const c=await cfg();
-  modal(`<h3>Tarifs et paiement</h3><input type="number" id="c_cr" placeholder="Prix d'un jeton (FCFA)" inputmode="numeric" value="${esc(c.coin_rate)}"><input type="number" id="c_gc" placeholder="Jetons par partie et par joueur" inputmode="numeric" value="${esc(c.game_cost)}"><input type="number" id="c_wc" placeholder="Jetons offerts à l'inscription" inputmode="numeric" value="${esc(c.welcome_coins)}"><input type="number" id="c_p" placeholder="Prix d'un boost par jour (FCFA)" inputmode="numeric" value="${esc(c.boost_price)}"><input type="text" id="c_i" placeholder="Moyen (ex. MTN MoMo)" value="${esc(c.pay_info)}"><input type="text" id="c_n" placeholder="Votre numéro Mobile Money" inputmode="tel" value="${esc(c.pay_number)}">
+  modal(`<h3>Tarifs et paiement</h3><input type="number" id="c_cr" placeholder="Prix d'un jeton (FCFA)" inputmode="numeric" value="${esc(c.coin_rate)}"><input type="number" id="c_gc" placeholder="Jetons par partie et par joueur" inputmode="numeric" value="${esc(c.game_cost)}"><input type="number" id="c_wc" placeholder="Jetons offerts à l'inscription" inputmode="numeric" value="${esc(c.welcome_coins)}"><input type="number" id="c_p" placeholder="Prix d'un boost par jour (FCFA)" inputmode="numeric" value="${esc(c.boost_price)}"><input type="number" id="c_pp" placeholder="Prix du Premium par mois (FCFA)" inputmode="numeric" value="${esc(c.premium_price||500)}"><input type="number" id="c_pc" placeholder="Jetons offerts chaque mois aux Premium" inputmode="numeric" value="${esc(c.premium_coins||30)}"><input type="number" id="c_rc" placeholder="Jetons gagnés par ami invité qui achète" inputmode="numeric" value="${esc(c.referral_coins||5)}"><input type="text" id="c_i" placeholder="Moyen (ex. MTN MoMo)" value="${esc(c.pay_info)}"><input type="text" id="c_n" placeholder="Votre numéro Mobile Money" inputmode="tel" value="${esc(c.pay_number)}">
   <div class="row"><button class="btn" id="c_go" style="flex:1">Enregistrer</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#c_go').onclick=async()=>{
     const nn=(id,d)=>{const x=parseInt($(id).value);return String(Number.isFinite(x)&&x>=0?x:d)};
-    const rows=[['coin_rate',String(Math.max(1,parseInt($('#c_cr').value)||10))],['game_cost',nn('#c_gc',5)],['welcome_coins',nn('#c_wc',10)],['boost_price',String(parseInt($('#c_p').value)||500)],['pay_info',$('#c_i').value.trim()||'Mobile Money'],['pay_number',$('#c_n').value.trim()]].map(([key,value])=>({key,value,updated_at:new Date().toISOString()}));
+    const rows=[['coin_rate',String(Math.max(1,parseInt($('#c_cr').value)||10))],['game_cost',nn('#c_gc',5)],['welcome_coins',nn('#c_wc',10)],['boost_price',String(parseInt($('#c_p').value)||500)],['premium_price',String(Math.max(1,parseInt($('#c_pp').value)||500))],['premium_coins',nn('#c_pc',30)],['referral_coins',nn('#c_rc',5)],['pay_info',$('#c_i').value.trim()||'Mobile Money'],['pay_number',$('#c_n').value.trim()]].map(([key,value])=>({key,value,updated_at:new Date().toISOString()}));
     const{error}=await sb.from('app_config').upsert(rows);if(error)return toast('Erreur : '+error.message);
     S.cfg=null;closeModal();toast('Enregistré ✅');loadAdminMoney();
   };
@@ -777,6 +807,7 @@ async function vReglages(){
   $('#view').innerHTML=`<div class="card"><h4>Compte</h4>
   <div class="li" data-act="editprofile">${av(S.profile,46)}<div class="gr"><b>${esc(name(S.profile))}</b><span>${esc(S.me.email||'')}</span></div><span>›</span></div>
   <div class="set" data-act="chpass" style="cursor:pointer"><b>🔑 Changer le mot de passe</b><span>›</span></div></div>
+  <div class="card" id="premcard"><h4>👑 Urbain Premium</h4><div class="muted">Chargement…</div></div>
   <div class="card"><h4>Notifications</h4>${sw('notify_likes','J\'aime')}${sw('notify_comments','Commentaires')}${sw('notify_friend_requests','Demandes d\'amis')}${sw('notify_messages','Messages')}</div>
   <div class="card"><h4>Confidentialité</h4>${sw('show_online','Afficher quand je suis en ligne','Vos amis voient le point vert')}</div>
   <div class="card"><h4>Apparence</h4>${sw('dark_mode','Mode sombre')}<div class="set"><b>Taille du texte</b><div class="row">${[['14px','A−'],['16px','A'],['18px','A+']].map(([s,l])=>`<button class="btn sm ${LS.get('u_font','16px')===s?'':'sec'}" data-act="font" data-id="${s}">${l}</button>`).join('')}</div></div></div>
@@ -786,12 +817,12 @@ async function vReglages(){
   <div class="card"><h4>Aide</h4><div class="set" data-act="about" style="cursor:pointer"><b>ℹ️ À propos d'Urbain</b><span>›</span></div></div>
   ${adm?`<div class="card"><h4>💰 Revenus et boosts (administrateur)</h4><div id="money"><div class="muted">Chargement…</div></div></div>`:''}
   <div class="card"><button class="btn red" style="width:100%" data-act="logout">Se déconnecter</button></div>`;
-  if(adm)loadAdminMoney();
+  if(adm)loadAdminMoney();premiumCard();
 }
 /* ---------- bouton + : story, publication, note ---------- */
 function plusMenu(){
   modal(`<h3>Créer / Jouer</h3>
-  <div class="plusrow" data-lg="open"><span>🎮</span>Jeux (Ludo, Penalty)</div>
+  <div class="plusrow" data-lg="open"><span>🎮</span>Jeux à 2 joueurs (Ludo, Penalty, Morpion, Puissance 4, Course)</div>
   <div class="plusrow" data-lg="ia"><span>🤖</span>Assistant IA</div>
   <div class="plusrow" data-lg="install"><span>📲</span>Installer l'app</div>
   <div class="plusrow" data-act="addstory"><span>📖</span>Story (24 h)</div>
@@ -985,7 +1016,7 @@ async function vJeux(){lStop();pStop();dStop();
   +g('⚽','Penalty','2 joueurs en ligne · 5 tirs chacun · devine où va le ballon','data-pg="play"')
   +g('❌','Morpion','2 joueurs en ligne · aligne 3 symboles avant ton adversaire','data-dg="play" data-k="morpion"')
   +g('🔴','Puissance 4','2 joueurs en ligne · aligne 4 jetons en ligne, colonne ou diagonale','data-dg="play" data-k="p4"')
-  +`<div class="card muted" style="text-align:center">La course de voitures arrive bientôt 🎮</div>`}
+  +g('🏎️','Course de voitures','2 joueurs en ligne · tapez le plus vite possible, le premier arrivé gagne','data-dg="play" data-k="course"')}
 async function rewardModal(){const c=await cfg();
   modal(`<h3>🎁 Mon cadeau</h3><p class="muted" style="margin-top:0">Choisis ton cadeau. L'administrateur le valide puis te l'envoie.</p>
   <select id="rw_k"><option value="forfait">Forfait internet (${esc(c.pts_gift||'')})</option><option value="boutique">Un article de la boutique</option></select>
@@ -1090,16 +1121,16 @@ async function decideCoins(id,ok){
 }
 
 /* ---------- MORPION & PUISSANCE 4 (2 joueurs en ligne) ---------- */
-const DG={g:null,ch:null,iv:null,busy:false},DNAME={morpion:'Morpion',p4:'Puissance 4'},DCOL={morpion:['#1877f2','#e41e3f'],p4:['#e41e3f','#f5c518']};
+const DG={g:null,ch:null,iv:null,busy:false},DNAME={morpion:'Morpion',p4:'Puissance 4',course:'Course de voitures'},RACE={id:null,pos:0,sent:0,last:0,go:0,timer:null,q:null,busy:false},DCOL={morpion:['#1877f2','#e41e3f'],p4:['#e41e3f','#f5c518']};
 const dMe=()=>DG.g.p1===S.me.id?0:1;
-const dNew=k=>({b:Array(k==='p4'?42:9).fill(-1),turn:0,winner:null,msg:''});
+const dNew=k=>k==='course'?{pos:[0,0],t:[null,null],winner:null,msg:''}:({b:Array(k==='p4'?42:9).fill(-1),turn:0,winner:null,msg:''});
 function dWin(k,b,pl){
   const lines=[];
   if(k==='morpion')[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]].forEach(l=>lines.push(l));
   else for(let r=0;r<6;r++)for(let c=0;c<7;c++)[[0,1],[1,0],[1,1],[1,-1]].forEach(([dr,dc])=>{
     const e=[];for(let i=0;i<4;i++){const rr=r+dr*i,cc=c+dc*i;if(rr<0||rr>5||cc<0||cc>6)return;e.push(rr*7+cc)}lines.push(e)});
   return lines.find(l=>l.every(i=>b[i]===pl))||null}
-function dStop(){clearInterval(DG.iv);if(DG.ch){sb.removeChannel(DG.ch);DG.ch=null}const g=DG.g;DG.g=null;
+function dStop(){clearInterval(DG.iv);clearTimeout(RACE.timer);clearTimeout(RACE.q);RACE.q=null;RACE.id=null;if(DG.ch){sb.removeChannel(DG.ch);DG.ch=null}const g=DG.g;DG.g=null;
   if(g&&g.status==='waiting'&&S.me&&g.p1===S.me.id)sb.from('duo_games').delete().eq('id',g.id).eq('status','waiting').then(()=>{})}
 async function dJoin(kind,id){
   const{data,error}=await sb.from('duo_games').update({p2:S.me.id,boost2:!!S.boost,status:'playing',state:dNew(kind),updated_at:new Date().toISOString()}).eq('id',id).is('p2',null).eq('status','waiting').select();
@@ -1145,11 +1176,59 @@ function dBoard(g,can){
   const k=g.kind,b=g.state.b,line=g.state.line||[],col=DCOL[k];
   if(k==='morpion')return`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:300px;margin:auto">${b.map((v,i)=>`<button data-dg="mv" data-i="${i}" ${can&&v===-1?'':'disabled'} style="aspect-ratio:1;border:0;border-radius:12px;background:var(--soft);font-size:44px;font-weight:700;color:${v<0?'inherit':col[v]};${line.includes(i)?'outline:4px solid #f5a623':''}">${v<0?'':['✕','◯'][v]}</button>`).join('')}</div>`;
   return`<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;max-width:360px;margin:auto;background:#1877f2;padding:8px;border-radius:14px">${b.map((v,i)=>`<button data-dg="mv" data-i="${i%7}" ${can?'':'disabled'} style="aspect-ratio:1;border:0;border-radius:50%;padding:0;background:${v<0?'var(--card)':col[v]};${line.includes(i)?'box-shadow:0 0 0 4px #fff':''}"></button>`).join('')}</div>`}
+/* ---------- COURSE DE VOITURES ---------- */
+const RACE_CAR=c=>`<svg viewBox="0 0 40 20" width="44" height="22" style="display:block"><rect x="2" y="8" width="36" height="8" rx="3" fill="${c}"/><rect x="10" y="2" width="18" height="8" rx="3" fill="${c}"/><rect x="13" y="4" width="12" height="4" rx="1.5" fill="#cfe8ff"/><circle cx="11" cy="17" r="3.2" fill="#222"/><circle cx="29" cy="17" r="3.2" fill="#222"/></svg>`;
+const raceLane=(id,c,label)=>`<div class="muted" style="margin-top:6px">${label}</div><div style="position:relative;height:40px;background:var(--soft);border-radius:10px;margin:4px 0 8px;overflow:hidden"><div style="position:absolute;right:6px;top:8px;font-size:20px">🏁</div><div id="${id}" style="position:absolute;top:9px;left:0;transition:left .2s linear">${RACE_CAR(c)}</div></div>`;
+function raceSetCar(id,p){const e=$(id);if(e)e.style.left='calc((100% - 44px) * '+(Math.max(0,Math.min(100,p))/100)+')'}
+function raceCount(){
+  clearTimeout(RACE.timer);
+  const m=$('#race_msg'),g=DG.g;if(!m||!g||g.status!=='playing'||RACE.id!==g.id)return;
+  const left=RACE.go-Date.now();
+  if(left>0){m.textContent=String(Math.ceil(left/1000));RACE.timer=setTimeout(raceCount,100);return}
+  m.textContent='GO ! 👆'}
+function raceTap(){
+  const g=DG.g;if(!g||g.status!=='playing'||RACE.id!==g.id||Date.now()<RACE.go||RACE.pos>=100)return;
+  RACE.pos=Math.min(100,RACE.pos+2);raceSetCar('#car_m',RACE.pos);
+  raceSend(RACE.pos>=100)}
+function raceSend(force){
+  const now=Date.now();
+  if(RACE.busy)return;
+  if(!force&&now-RACE.last<250){if(!RACE.q)RACE.q=setTimeout(()=>{RACE.q=null;raceSend(false)},250-(now-RACE.last)+5);return}
+  const g=DG.g;if(!g||g.status!=='playing')return;
+  RACE.busy=true;RACE.last=now;RACE.sent=RACE.pos;const id=g.id,p=RACE.pos;
+  sb.rpc('race_tap',{p_game:id,p_pos:p}).then(({data,error})=>{
+    RACE.busy=false;
+    if(error)return toast(errMsg(error));
+    const c=DG.g;if(!c||c.id!==id||!data)return;
+    const me=dMe(),srv=(data.pos&&data.pos[me])||0;
+    DG.g={...c,state:data,status:data.winner!=null?'done':c.status};
+    RACE.pos=Math.min(RACE.pos,srv+12);
+    dRender();
+    if(DG.g&&DG.g.status==='playing'&&RACE.pos>RACE.sent)raceSend(false)})}
+function raceRender(g,oid){
+  const v=$('#view'),me=dMe(),st=g.state||{},pos=st.pos||[0,0],opp=S.cache[oid]||{};
+  if(RACE.id!==g.id){
+    RACE.id=g.id;RACE.pos=0;RACE.sent=0;RACE.last=0;RACE.busy=false;RACE.go=Date.now()+3000;
+    v.innerHTML=`<div class="card" id="race"><div class="ph" style="margin:0 0 6px">${av(opp,36)}<div><b>${esc(name(opp))}</b><span class="muted">Course de voitures · le premier arrivé gagne</span></div></div>`
+    +raceLane('car_o','#e41e3f',esc(name(opp)))+raceLane('car_m','#1877f2','Toi')
+    +`<div id="race_msg" style="text-align:center;font-weight:800;font-size:24px;margin:8px 0;min-height:32px"></div>
+    <button class="btn" id="race_btn" style="width:100%;height:130px;font-size:26px;font-weight:800;border-radius:18px;touch-action:manipulation;user-select:none;-webkit-user-select:none">TAPE ! TAPE ! TAPE !</button>
+    <div class="row" id="race_end" style="justify-content:center;margin-top:12px"><button class="btn sec" data-dg="quit">Abandonner</button></div></div>`;
+    $('#race_btn').onpointerdown=e=>{e.preventDefault();raceTap()};
+    raceCount()}
+  raceSetCar('#car_o',pos[1-me]||0);
+  if(g.status==='done'){
+    clearTimeout(RACE.timer);
+    raceSetCar('#car_m',pos[me]||0);
+    const m=$('#race_msg');if(m)m.textContent=st.winner===me?'🏆 Tu as gagné !':'😕 '+name(opp)+' a gagné'+(st.msg==='Abandon'?' (abandon)':'');
+    const b=$('#race_btn');if(b)b.disabled=true;
+    const en=$('#race_end');if(en)en.innerHTML=`<button class="btn" data-dg="play" data-k="${g.kind}">Rejouer</button><button class="btn sec" data-dg="quit">Quitter</button>`}}
 async function dRender(){const g=DG.g,v=$('#view');if(!g||S.tab!=='jeux')return;
   const me=dMe(),st=g.state||{},oid=me===0?g.p2:g.p1;
   if(oid&&!S.cache[oid]){const r=await sb.from('profiles').select('*').eq('id',oid).maybeSingle();S.cache[oid]=r.data||{id:oid}}
   if(DG.g!==g)return dRender();
   if(g.status==='waiting'){v.innerHTML=`<div class="card" style="text-align:center"><div style="font-size:48px">⏳</div><h3>Recherche d'un adversaire…</h3><div class="muted" style="margin-bottom:12px">La partie démarre dès qu'un autre joueur appuie sur « Jouer ».</div><button class="btn sec" data-dg="quit">Annuler</button></div>`;return}
+  if(g.kind==='course')return raceRender(g,oid);
   const opp=S.cache[oid],mine=g.status==='playing'&&st.turn===me,mk=g.kind==='p4'?['🔴','🟡']:['✕','◯'];
   let t;if(g.status==='done')t=st.winner===me?'🏆 Tu as gagné !':st.winner===-1?'🤝 Match nul':'😕 '+esc(name(opp))+' a gagné'+(st.msg==='Abandon'?' (abandon)':'');
   else t=mine?'À toi de jouer !':'Tour de '+esc(name(opp))+'…';
@@ -1231,6 +1310,9 @@ document.addEventListener('click',async e=>{
    case'coinreq':return requestCoins(+el.dataset.n);
    case'cok':return decideCoins(id,true);
    case'cno':return decideCoins(id,false);
+   case'premreq':return requestPremium();
+   case'pok':return decidePremium(id,true);
+   case'pno':return decidePremium(id,false);
    case'logout':clearInterval(S.hb);if(S.rt)sb.removeChannel(S.rt);await sb.auth.signOut();return
   }}catch(err){toast('Erreur : '+(err.message||err))}
 });
