@@ -10,6 +10,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Urbain">
 <title>Urbain</title>
+<meta name="description" content="Urbain : publications, stories, messages vocaux, jeux à 2 en ligne, boutique et cadeaux. Inscription gratuite.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Urbain">
+<meta property="og:title" content="Urbain : retrouve tes amis, joue et gagne des cadeaux">
+<meta property="og:description" content="Publications, stories, messages vocaux, jeux à 2 en ligne (Ludo, Penalty...), boutique. Crée ton compte gratuitement en 1 minute.">
+<meta property="og:url" content="https://agbadahouu-ui.github.io/urbain/">
+<meta property="og:image" content="https://agbadahouu-ui.github.io/urbain/icon-512.png">
+<meta property="og:locale" content="fr_FR">
+<meta name="twitter:card" content="summary">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--bg:#f0f2f5;--card:#fff;--tx:#1c1e21;--mu:#65676b;--pr:#1877f2;--bd:#dddfe2;--soft:#e4e6eb;--red:#e41e3f}
@@ -855,7 +864,7 @@ async function paySet(){
   };
 }
 function aboutModal(){
-  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.1</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis, sur invitation.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
+  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.2</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
 }
 const lsw=(k,label,sub,def='1')=>`<div class="set"><div><b>${label}</b>${sub?`<div class="muted">${sub}</div>`:''}</div><button class="sw ${LS.get(k,def)==='1'?'on':''}" data-act="lsw" data-id="${k}"></button></div>`;
 
