@@ -685,7 +685,8 @@ async function boostModal(id){
 }
 
 /* ---------- argent (administrateur) ---------- */
-async function loadAdminMoney(){
+async function loadAdminMoney(){await loadAdminMoney0();await loadRewardsAdmin()}
+async function loadAdminMoney0(){
   const box=$('#money');if(!box)return;
   const[{data:br},{data:cr},c]=await Promise.all([sb.from('boost_requests').select('*').order('created_at',{ascending:false}).limit(150),sb.from('coin_requests').select('*').order('created_at',{ascending:false}).limit(150),cfg()]);
   const list=br||[],ok=list.filter(b=>b.status==='approved'),pend=list.filter(b=>b.status==='pending');
@@ -895,14 +896,14 @@ async function iaSend(){const i=$('#ia_i');if(!i||S.iaBusy)return;const q=i.valu
 const PG={g:null,ch:null,iv:null},pMe=()=>PG.g.p1===S.me.id?0:1,pNow=()=>new Date().toISOString();
 function pStop(){clearInterval(PG.iv);if(PG.ch){sb.removeChannel(PG.ch);PG.ch=null}const g=PG.g;PG.g=null;
   if(g&&g.status==='waiting'&&S.me&&g.p1===S.me.id)sb.from('penalty_games').delete().eq('id',g.id).eq('status','waiting').then(()=>{})}
-async function pJoin(id){const{data}=await sb.from('penalty_games').update({p2:S.me.id,status:'playing',updated_at:pNow()}).eq('id',id).is('p2',null).eq('status','waiting').select();return data&&data[0]||null}
+async function pJoin(id){const{data}=await sb.from('penalty_games').update({p2:S.me.id,boost2:!!S.boost,status:'playing',updated_at:pNow()}).eq('id',id).is('p2',null).eq('status','waiting').select();return data&&data[0]||null}
 async function pPlay(){pStop();$('#view').innerHTML='<div class="loading">Recherche d\'une partie…</div>';
   const me=S.me.id,r1=await sb.from('penalty_games').select('*').or(`p1.eq.${me},p2.eq.${me}`).neq('status','done').order('created_at',{ascending:false}).limit(1);
   if(r1.data&&r1.data[0])return pOpen(r1.data[0]);
   if(!await needCoins())return go('jeux');
   const r2=await sb.from('penalty_games').select('id').eq('status','waiting').is('p2',null).neq('p1',me).gt('created_at',new Date(Date.now()-600000).toISOString()).order('created_at').limit(1);
   if(r2.data&&r2.data[0]){const j=await pJoin(r2.data[0].id);if(j)return pOpen(j)}
-  const r3=await sb.from('penalty_games').insert({p1:me}).select().single();if(r3.error)throw r3.error;pOpen(r3.data)}
+  const r3=await sb.from('penalty_games').insert({p1:me,boost1:!!S.boost}).select().single();if(r3.error)throw r3.error;pOpen(r3.data)}
 function pApply(g){PG.g=g;pRender();if(g.status==='playing'&&g.sc!=null&&g.kc!=null)pResolve(g)}
 function pOpen(g){pStop();PG.g=g;
   PG.ch=sb.channel('pen-'+g.id).on('postgres_changes',{event:'UPDATE',schema:'public',table:'penalty_games',filter:'id=eq.'+g.id},p=>{if(PG.g&&p.new.id===PG.g.id)pApply(p.new)}).subscribe();
@@ -955,15 +956,37 @@ const lMov=(st,pl,d)=>{const o=[];st.pos[pl].forEach((p,k)=>{if(p===-1?d===6:p+d
 function lStop(){clearInterval(LG.iv);if(LG.ch){sb.removeChannel(LG.ch);LG.ch=null}const g=LG.g;LG.g=null;
   if(g&&g.status==='waiting'&&S.me&&g.p1===S.me.id)sb.from('ludo_games').delete().eq('id',g.id).eq('status','waiting').then(()=>{})}
 async function vJeux(){lStop();pStop();dStop();
-  const[b,c]=await Promise.all([sb.rpc('coin_balance'),cfg()]),cost=parseInt(c.game_cost)||0;
-  const g=(ico,t,d,att)=>`<div class="card" style="text-align:center"><div style="font-size:54px">${ico}</div><h3 style="margin:4px 0">${t}</h3><div class="muted" style="margin-bottom:12px">${d}</div><button class="btn" ${att} style="width:100%">Jouer · ${cost} 🪙</button></div>`;
-  $('#view').innerHTML=`<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div><b style="font-size:20px">🪙 ${b.data||0} jetons</b><div class="muted">${cost} jetons par joueur et par partie</div></div><button class="btn sm" data-act="buycoins">+ Acheter</button></div>`
+  const[b,c,pi,rq]=await Promise.all([sb.rpc('coin_balance'),cfg(),sb.rpc('points_info'),sb.from('reward_requests').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(3)]);
+  if(S.tab!=='jeux')return;
+  const P=pi.data||{points:0,today:0},goal=parseInt(c.pts_goal)||1000,cap=parseInt(c.pts_daily_cap)||100,win=parseInt(c.pts_win)||10,bwin=parseInt(c.pts_boost_win)||50,
+    bc=parseInt(c.game_boost_cost)||10,rate=parseInt(c.coin_rate)||10,cost=parseInt(c.game_cost)||0,pct=Math.min(100,Math.round(P.points*100/goal)),boost=!!S.boost,ok=P.points>=goal;
+  const lab=boost?`Jouer ⚡ · ${cost+bc} 🪙`:(cost?`Jouer · ${cost} 🪙`:'Jouer · gratuit');
+  const g=(ico,t,d,att)=>`<div class="card" style="text-align:center"><div style="font-size:54px">${ico}</div><h3 style="margin:4px 0">${t}</h3><div class="muted" style="margin-bottom:12px">${d}</div><button class="btn" ${att} style="width:100%">${lab}</button></div>`;
+  const st={pending:'en attente',approved:'envoyé ✅',rejected:'refusé (points rendus)'};
+  $('#view').innerHTML=`<div class="card"><div style="font-weight:800;font-size:17px">🏆 GAGNE DES POINTS EN JOUANT</div>
+  <div class="muted" style="margin:4px 0 8px">Victoire gratuite : +${win} points (max ${cap} par jour). <b>${goal} POINTS = CADEAU GARANTI</b> : un forfait internet (${esc(c.pts_gift||'')}) ou un article de la boutique.</div>
+  <div style="background:var(--soft);border-radius:8px;height:12px;overflow:hidden"><div style="width:${pct}%;height:100%;background:var(--pr)"></div></div>
+  <div class="row" style="justify-content:space-between;margin-top:6px"><b>${P.points} / ${goal} points</b><span class="muted">Aujourd'hui : ${P.today} / ${cap}</span></div>
+  <button class="btn" style="width:100%;margin-top:8px" data-act="reward" ${ok?'':'disabled'}>🎁 ${ok?'Réclamer mon cadeau':'Cadeau à '+goal+' points'}</button>
+  ${(rq.data||[]).map(r=>`<div class="muted" style="margin-top:6px">Cadeau demandé (${r.kind==='forfait'?'forfait':'boutique'}) : ${st[r.status]||r.status}</div>`).join('')}</div>
+  <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div><b style="font-size:20px">🪙 ${b.data||0} jetons</b><div class="muted">1 jeton = ${money(rate)} FCFA</div></div><button class="btn sm" data-act="buycoins">+ Acheter</button></div>
+  <div class="card"><div class="set" style="padding:0;border:0;gap:12px"><div><b>⚡ BOOST ${money(bc*rate)} F POUR ALLER PLUS VITE</b><div class="muted">Une victoire rapporte +${bwin} points au lieu de ${win}, sans limite par jour. Coût : ${bc} jetons par partie.</div></div><button class="sw${boost?' on':''}" data-act="boostsw"></button></div></div>`
   +g('🎲','Ludo','2 joueurs en ligne · sors un 6 pour faire entrer un pion','data-lg="play"')
   +g('⚽','Penalty','2 joueurs en ligne · 5 tirs chacun · devine où va le ballon','data-pg="play"')
   +g('❌','Morpion','2 joueurs en ligne · aligne 3 symboles avant ton adversaire','data-dg="play" data-k="morpion"')
   +g('🔴','Puissance 4','2 joueurs en ligne · aligne 4 jetons en ligne, colonne ou diagonale','data-dg="play" data-k="p4"')
   +`<div class="card muted" style="text-align:center">La course de voitures arrive bientôt 🎮</div>`}
-async function lJoin(id){const{data}=await sb.from('ludo_games').update({p2:S.me.id,status:'playing',state:lNew(),updated_at:new Date().toISOString()}).eq('id',id).is('p2',null).eq('status','waiting').select();return data&&data[0]||null}
+async function rewardModal(){const c=await cfg();
+  modal(`<h3>🎁 Mon cadeau</h3><p class="muted" style="margin-top:0">Choisis ton cadeau. L'administrateur le valide puis te l'envoie.</p>
+  <select id="rw_k"><option value="forfait">Forfait internet (${esc(c.pts_gift||'')})</option><option value="boutique">Un article de la boutique</option></select>
+  <input type="text" id="rw_n" maxlength="200" placeholder="Ton numéro de téléphone ou l'article souhaité">
+  <div class="row"><button class="btn" id="rw_go">Envoyer ma demande</button><button class="btn sec" onclick="closeModal()">Fermer</button></div>`);
+  $('#rw_go').onclick=async()=>{const{error}=await sb.rpc('redeem_points',{p_kind:$('#rw_k').value,p_note:$('#rw_n').value.trim()});if(error)return toast(errMsg(error));closeModal();toast('Demande envoyée ✅');vJeux()}}
+async function loadRewardsAdmin(){const box=$('#money');if(!box)return;
+  const{data}=await sb.from('reward_requests').select('*').eq('status','pending').order('created_at'),l=data||[];await getProfiles(l.map(r=>r.user_id));
+  box.insertAdjacentHTML('beforeend',`<h4>Cadeaux à valider (${l.length})</h4>`+(l.length?l.map(r=>`<div class="set" style="flex-wrap:wrap;gap:8px"><div><b>${esc(name(S.cache[r.user_id]))}</b><div class="muted">${r.kind==='forfait'?'Forfait internet':'Article boutique'} · ${esc(r.note)}</div></div><div class="row"><button class="btn sm" data-act="rok" data-id="${r.id}">Envoyé ✅</button><button class="btn sec sm" data-act="rno" data-id="${r.id}">Refuser</button></div></div>`).join(''):'<div class="muted">Aucun cadeau en attente.</div>'))}
+async function decideReward(id,ok){const{error}=await sb.rpc('admin_decide_reward',{p_id:id,p_ok:ok});if(error)return toast(errMsg(error));toast(ok?'Cadeau marqué comme envoyé ✅':'Refusé : points rendus');loadAdminMoney()}
+async function lJoin(id){const{data}=await sb.from('ludo_games').update({p2:S.me.id,boost2:!!S.boost,status:'playing',state:lNew(),updated_at:new Date().toISOString()}).eq('id',id).is('p2',null).eq('status','waiting').select();return data&&data[0]||null}
 async function lPlay(){lStop();$('#view').innerHTML='<div class="loading">Recherche d\'une partie…</div>';
   const me=S.me.id,r1=await sb.from('ludo_games').select('*').or(`p1.eq.${me},p2.eq.${me}`).neq('status','done').order('created_at',{ascending:false}).limit(1);
   if(r1.data&&r1.data[0])return lOpen(r1.data[0]);
@@ -971,7 +994,7 @@ async function lPlay(){lStop();$('#view').innerHTML='<div class="loading">Recher
   const since=new Date(Date.now()-600000).toISOString();
   const r2=await sb.from('ludo_games').select('id').eq('status','waiting').is('p2',null).neq('p1',me).gt('created_at',since).order('created_at').limit(1);
   if(r2.data&&r2.data[0]){const j=await lJoin(r2.data[0].id);if(j)return lOpen(j)}
-  const r3=await sb.from('ludo_games').insert({p1:me}).select().single();if(r3.error)throw r3.error;lOpen(r3.data)}
+  const r3=await sb.from('ludo_games').insert({p1:me,boost1:!!S.boost}).select().single();if(r3.error)throw r3.error;lOpen(r3.data)}
 function lOpen(g){lStop();LG.g=g;
   LG.ch=sb.channel('ludo-'+g.id).on('postgres_changes',{event:'UPDATE',schema:'public',table:'ludo_games',filter:'id=eq.'+g.id},p=>{if(LG.g&&p.new.id===LG.g.id){LG.g=p.new;lRender()}}).subscribe();
   LG.iv=setInterval(async()=>{const c=LG.g;if(!c||LG.busy)return;
@@ -1033,12 +1056,12 @@ document.addEventListener('click',async e=>{const el=e.target.closest('[data-lg]
 
 /* ---------- JETONS ---------- */
 async function needCoins(){
-  const[b,c]=await Promise.all([sb.rpc('coin_balance'),cfg()]),cost=parseInt(c.game_cost)||0;
+  const[b,c]=await Promise.all([sb.rpc('coin_balance'),cfg()]),cost=(parseInt(c.game_cost)||0)+(S.boost?(parseInt(c.game_boost_cost)||10):0);
   if((b.data||0)>=cost)return true;
   toast('Il vous faut '+cost+' jetons pour jouer.');coinsModal();return false}
 async function coinsModal(){
-  const c=await cfg(),rate=parseInt(c.coin_rate)||10,cost=parseInt(c.game_cost)||5;
-  modal(`<h3>🪙 Acheter des jetons</h3><p class="muted" style="margin-top:0">Une partie coûte ${cost} jetons par joueur. 1 jeton = ${money(rate)} FCFA.</p>
+  const c=await cfg(),rate=parseInt(c.coin_rate)||10,cost=parseInt(c.game_cost)||0;
+  modal(`<h3>🪙 Acheter des jetons</h3><p class="muted" style="margin-top:0">${cost>0?`Une partie coûte ${cost} jetons par joueur.`:`Les parties sont gratuites : les jetons servent au BOOST (+${parseInt(c.pts_boost_win)||50} points si tu gagnes).`} 1 jeton = ${money(rate)} FCFA.</p>
   ${[10,30,100].map(n=>`<div class="plusrow" data-act="coinreq" data-n="${n}" style="justify-content:space-between"><span style="font-size:16px">🪙 ${n} jetons</span><span style="font-size:16px">${money(n*rate)} FCFA</span></div>`).join('')}
   <p class="muted">${c.pay_number?`Choisissez un pack, puis payez par ${esc(c.pay_info)} au <b>${esc(c.pay_number)}</b>.`:'Choisissez un pack, puis payez l\'administrateur par Mobile Money.'} Vos jetons sont ajoutés dès que le paiement est vérifié.</p>
   <button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
@@ -1069,7 +1092,7 @@ function dWin(k,b,pl){
 function dStop(){clearInterval(DG.iv);if(DG.ch){sb.removeChannel(DG.ch);DG.ch=null}const g=DG.g;DG.g=null;
   if(g&&g.status==='waiting'&&S.me&&g.p1===S.me.id)sb.from('duo_games').delete().eq('id',g.id).eq('status','waiting').then(()=>{})}
 async function dJoin(kind,id){
-  const{data,error}=await sb.from('duo_games').update({p2:S.me.id,status:'playing',state:dNew(kind),updated_at:new Date().toISOString()}).eq('id',id).is('p2',null).eq('status','waiting').select();
+  const{data,error}=await sb.from('duo_games').update({p2:S.me.id,boost2:!!S.boost,status:'playing',state:dNew(kind),updated_at:new Date().toISOString()}).eq('id',id).is('p2',null).eq('status','waiting').select();
   if(error)throw error;return data&&data[0]||null}
 async function dPlay(kind){
   dStop();$('#view').innerHTML='<div class="loading">Recherche d\'une partie…</div>';
@@ -1079,7 +1102,7 @@ async function dPlay(kind){
   const since=new Date(Date.now()-600000).toISOString();
   const r2=await sb.from('duo_games').select('id').eq('kind',kind).eq('status','waiting').is('p2',null).neq('p1',me).gt('created_at',since).order('created_at').limit(1);
   if(r2.data&&r2.data[0]){const j=await dJoin(kind,r2.data[0].id);if(j)return dOpen(j)}
-  const r3=await sb.from('duo_games').insert({kind,p1:me}).select().single();if(r3.error)throw r3.error;dOpen(r3.data)}
+  const r3=await sb.from('duo_games').insert({kind,p1:me,boost1:!!S.boost}).select().single();if(r3.error)throw r3.error;dOpen(r3.data)}
 function dOpen(g){dStop();DG.g=g;
   DG.ch=sb.channel('duo-'+g.id).on('postgres_changes',{event:'UPDATE',schema:'public',table:'duo_games',filter:'id=eq.'+g.id},p=>{if(DG.g&&p.new.id===DG.g.id){DG.g=p.new;dRender()}}).subscribe();
   DG.iv=setInterval(async()=>{const c=DG.g;if(!c||DG.busy)return;
@@ -1190,6 +1213,10 @@ document.addEventListener('click',async e=>{
    case'copycode':{try{await navigator.clipboard.writeText(S.myCode);toast('Code copié ✅')}catch(_){toast('Code : '+S.myCode)}return}
    case'regencode':if(!confirm('Changer votre code ? L\'ancien ne fonctionnera plus.'))return;return showMyCode(true);
    case'buycoins':return coinsModal();
+   case'boostsw':S.boost=!S.boost;return vJeux();
+   case'reward':return rewardModal();
+   case'rok':return decideReward(id,true);
+   case'rno':return decideReward(id,false);
    case'coinreq':return requestCoins(+el.dataset.n);
    case'cok':return decideCoins(id,true);
    case'cno':return decideCoins(id,false);
