@@ -977,7 +977,7 @@ const lMov=(st,pl,d)=>{const o=[];st.pos[pl].forEach((p,k)=>{if(p===-1?d===6:p+d
 function lStop(){clearInterval(LG.iv);if(LG.ch){sb.removeChannel(LG.ch);LG.ch=null}const g=LG.g;LG.g=null;
   if(g&&g.status==='waiting'&&S.me&&g.p1===S.me.id)sb.from('ludo_games').delete().eq('id',g.id).eq('status','waiting').then(()=>{})}
 async function vJeux(){lStop();pStop();dStop();
-  const[b,c,pi,rq]=await Promise.all([sb.rpc('coin_balance'),cfg(),sb.rpc('points_info'),sb.from('reward_requests').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(3)]);
+  const[b,c,pi,rq,lb]=await Promise.all([sb.rpc('coin_balance'),cfg(),sb.rpc('points_info'),sb.from('reward_requests').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(3),sb.rpc('weekly_leaderboard')]);
   if(S.tab!=='jeux')return;
   const P=pi.data||{points:0,today:0},goal=parseInt(c.pts_goal)||1000,cap=parseInt(c.pts_daily_cap)||100,win=parseInt(c.pts_win)||10,bwin=parseInt(c.pts_boost_win)||50,
     bc=parseInt(c.game_boost_cost)||10,rate=parseInt(c.coin_rate)||10,cost=parseInt(c.game_cost)||0,pct=Math.min(100,Math.round(P.points*100/goal)),boost=!!S.boost,ok=P.points>=goal;
@@ -996,7 +996,7 @@ async function vJeux(){lStop();pStop();dStop();
   +g('⚽','Penalty','2 joueurs en ligne · 5 tirs chacun · devine où va le ballon','data-pg="play"','penalty')
   +g('❌','Morpion','2 joueurs en ligne · aligne 3 symboles avant ton adversaire','data-dg="play" data-k="morpion"','morpion')
   +g('🔴','Puissance 4','2 joueurs en ligne · aligne 4 jetons en ligne, colonne ou diagonale','data-dg="play" data-k="p4"','p4')
-  +`<div class="card muted" style="text-align:center">La course de voitures arrive bientôt 🎮</div>`}
+  +lbCard(lb.data)+`<div class="card muted" style="text-align:center">La course de voitures arrive bientôt 🎮</div>`}
 async function rewardModal(){const c=await cfg();
   modal(`<h3>🎁 Mon cadeau</h3><p class="muted" style="margin-top:0">Choisis ton cadeau. L'administrateur le valide puis te l'envoie.</p>
   <select id="rw_k"><option value="forfait">Forfait internet (${esc(c.pts_gift||'')})</option><option value="boutique">Un article de la boutique</option></select>
@@ -1182,7 +1182,19 @@ async function acceptDefi(code){const m=/^([lpd])-([0-9a-f-]{36})$/i.exec(code||
 async function usePendingDefi(){let c=null;try{c=localStorage.getItem('u_pending_defi');localStorage.removeItem('u_pending_defi')}catch(e){}
   if(c)try{await acceptDefi(c)}catch(e){toast(errMsg(e))}}
 document.addEventListener('click',async e=>{const el=e.target.closest('[data-ch]');if(!el)return;const a=el.dataset.ch;
-  try{if(a==='share')return await chShare();if(a==='new')return await chNew(el.dataset.k)}catch(err){toast(errMsg(err))}});
+  try{if(a==='rank')return await chRank();if(a==='share')return await chShare();if(a==='new')return await chNew(el.dataset.k)}catch(err){toast(errMsg(err))}});
+
+/* ---------- CLASSEMENT DE LA SEMAINE ---------- */
+function lbCard(L){if(!L)return'';S.lb=L;const top=L.top||[],med=['🥇','🥈','🥉'],d=Math.max(0,Math.ceil((new Date(L.ends)-Date.now())/864e5)),inTop=L.me&&top.some(x=>x.user_id===S.me.id);
+  return `<div class="card"><div style="font-weight:800;font-size:17px">🥇 CLASSEMENT DE LA SEMAINE</div>
+  <div class="muted" style="margin:4px 0 8px">Victoires contre de vrais joueurs · fin dans ${d} j${L.prize?` · 🎁 Lot du 1er : <b>${esc(L.prize)}</b>`:''}</div>
+  ${top.length?top.map(x=>`<div class="row" style="padding:5px 0;flex-wrap:nowrap"><b style="width:30px">${med[x.rank-1]||'#'+x.rank}</b>${av({full_name:x.name,avatar_url:x.avatar},32)}<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.name)}${x.user_id===S.me.id?' (toi)':''}</span><b>${x.wins} 🏆</b></div>`).join(''):'<div class="muted">Personne n\'a encore gagné cette semaine : sois le premier !</div>'}
+  ${L.me&&!inTop?`<div class="muted" style="margin-top:6px">Ton rang : #${L.me.rank} (${L.me.wins} victoire${L.me.wins>1?'s':''})</div>`:''}
+  ${L.prev?`<div class="muted" style="margin-top:6px">Gagnant de la semaine dernière : <b>${esc(L.prev.name)}</b> (${L.prev.wins} victoires)</div>`:''}
+  ${L.me?'<button class="btn sec" style="width:100%;margin-top:8px" data-ch="rank">💬 Partager mon rang</button>':''}</div>`}
+async function chRank(){const L=S.lb;if(!L||!L.me)return;const text=`🏆 Je suis n°${L.me.rank} au classement de la semaine sur Urbain ! Viens me battre : ${location.origin+location.pathname}`;
+  if(navigator.share){try{await navigator.share({text});return}catch(e){if(e&&e.name==='AbortError')return}}
+  window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank')}
 
 /* ---------- ROBOT ADVERSAIRE (après 10 s d'attente) ---------- */
 let BT=null;
