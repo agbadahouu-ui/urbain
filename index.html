@@ -181,9 +181,7 @@ function authScreen(mode=QAMI?'up':'in'){
       const{data,error}=await sb.auth.signUp({email,password,options:{data:{full_name}}});
       b.disabled=false;
       if(error){m.textContent=error.message;return}
-      if(!data.session){
-        const r=await sb.auth.signInWithPassword({email,password});
-        if(r.error)m.textContent='Compte créé. Vérifiez votre e-mail pour confirmer, puis connectez-vous.'}
+      if(!data.session){m.textContent='Compte créé. Vérifiez votre e-mail pour confirmer, puis connectez-vous.'}
     }else{
       const{error}=await sb.auth.signInWithPassword({email,password});
       b.disabled=false;
@@ -783,6 +781,28 @@ async function decideReport(id,remove){
   toast(remove?'Contenu supprimé ✅':'Signalement ignoré');loadAdminMoney();
 }
 
+/* ---------- SEMAINE 1 : partage de victoire et bonus quotidien ---------- */
+function winShare(game){
+  if(!S.myCode&&S.me)Promise.resolve(sb.rpc('my_friend_code')).then(r=>{if(r&&r.data)S.myCode=r.data}).catch(()=>{});
+  const base=/^https?:/.test(location.protocol)?location.origin+location.pathname:'https://agbadahouu-ui.github.io/urbain/';
+  const link=base+(S.myCode?'?ami='+S.myCode:'');
+  const txt=encodeURIComponent('🏆 Je viens de gagner au '+game+' sur Urbain ! Viens m\'affronter 👇\n'+link);
+  return`<div style="margin-top:8px"><a class="btn" style="background:#25d366;text-decoration:none;display:inline-block" target="_blank" rel="noopener" href="https://wa.me/?text=${txt}">📲 Partager ma victoire</a></div>`;
+}
+async function dailyCard(){
+  const box=$('#dbcard');if(!box)return;
+  const{data,error}=await sb.rpc('daily_bonus_info');
+  if(error||!data)return;
+  box.innerHTML=`<div class="card" style="border:1px solid #f5a623"><div style="font-weight:800;font-size:17px">🎁 BONUS DU JOUR</div><div class="muted" style="margin:4px 0 8px">Reviens chaque jour : série de ${data.streak} jour${data.streak>1?'s':''}. Si tu rates un jour, la série repart de zéro. Le 7ᵉ jour, bonus de ${data.week} 🪙.</div>`
+  +(data.can_claim?`<button class="btn" style="width:100%" data-act="claimdaily">Récupérer +${data.reward} 🪙 (jour ${data.day}/7)</button>`:`<div class="muted"><b>✅ Bonus d'aujourd'hui récupéré.</b> Reviens demain pour +${data.next_reward} 🪙.</div>`)+`</div>`;
+}
+async function claimDaily(){
+  const{data,error}=await sb.rpc('claim_daily_bonus');
+  if(error)return toast(errMsg(error));
+  toast(data&&data.ok?'🎁 +'+data.reward+' jeton'+(data.reward>1?'s':'')+' !':"Déjà récupéré aujourd'hui.");
+  vJeux();
+}
+
 /* ---------- PUBLICITÉS ---------- */
 async function loadAds(){
   if(S.adsT&&Date.now()-S.adsT<60000)return;
@@ -924,7 +944,7 @@ async function paySet(){
   };
 }
 function aboutModal(){
-  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.3</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
+  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.4</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
 }
 const lsw=(k,label,sub,def='1')=>`<div class="set"><div><b>${label}</b>${sub?`<div class="muted">${sub}</div>`:''}</div><button class="sw ${LS.get(k,def)==='1'?'on':''}" data-act="lsw" data-id="${k}"></button></div>`;
 
@@ -1138,7 +1158,7 @@ async function pRender(){const g=PG.g,v=$('#view');if(!g||S.tab!=='jeux')return;
   if(PG.g!==g)return pRender();
   if(g.status==='waiting'){v.innerHTML=`<div class="card" style="text-align:center"><div style="font-size:48px">⏳</div><h3>Recherche d'un adversaire…</h3><div class="muted" style="margin-bottom:12px">La partie démarre dès qu'un autre joueur appuie sur « Jouer ».</div><button class="btn sec" data-pg="quit">Annuler</button></div>`;return}
   const opp=S.cache[oid],sh=g.rnd%2===me,mine=sh?g.sc:g.kc,L=g.last,play=g.status==='playing'&&mine==null,sc=me===0?[g.s1,g.s2]:[g.s2,g.s1];
-  let t;if(g.status==='done')t=g.winner===me?'🏆 Tu as gagné !':g.winner===-1?'🤝 Match nul':'😕 '+esc(name(opp))+' a gagné';
+  let t;if(g.status==='done')t=g.winner===me?'🏆 Tu as gagné !'+winShare('Penalty'):g.winner===-1?'🤝 Match nul':'😕 '+esc(name(opp))+' a gagné';
   else t=mine!=null?'Choix envoyé… en attente de '+esc(name(opp)):sh?'⚽ À toi de tirer ! Choisis un côté':'🧤 À toi de plonger ! Devine le côté';
   const res=L?(L.goal?'⚽ BUT !':'🧤 ARRÊT !')+' ('+(L.sh===me?'ton tir':'son tir')+')':'';
   const bt=(d,l)=>`<button class="btn" data-pg="pick" data-d="${d}" style="flex:1" ${play?'':'disabled'}>${l}</button>`;
@@ -1166,7 +1186,7 @@ async function vJeux(){lStop();pStop();dStop();
   const lab=boost?`Jouer ⚡ · ${cost+bc} 🪙`:(cost?`Jouer · ${cost} 🪙`:'Jouer · gratuit');
   const g=(ico,t,d,att)=>`<div class="card" style="text-align:center"><div style="font-size:54px">${ico}</div><h3 style="margin:4px 0">${t}</h3><div class="muted" style="margin-bottom:12px">${d}</div><button class="btn" ${att} style="width:100%">${lab}</button></div>`;
   const st={pending:'en attente',approved:'envoyé ✅',rejected:'refusé (points rendus)'};
-  $('#view').innerHTML=`<div class="card"><div style="font-weight:800;font-size:17px">🏆 GAGNE DES POINTS EN JOUANT</div>
+  $('#view').innerHTML=`<div id="dbcard"></div><div class="card"><div style="font-weight:800;font-size:17px">🏆 GAGNE DES POINTS EN JOUANT</div>
   <div class="muted" style="margin:4px 0 8px">Victoire gratuite : +${win} points (max ${cap} par jour). <b>${goal} POINTS = CADEAU GARANTI</b> : un forfait internet (${esc(c.pts_gift||'')}) ou un article de la boutique.</div>
   <div style="background:var(--soft);border-radius:8px;height:12px;overflow:hidden"><div style="width:${pct}%;height:100%;background:var(--pr)"></div></div>
   <div class="row" style="justify-content:space-between;margin-top:6px"><b>${P.points} / ${goal} points</b><span class="muted">Aujourd'hui : ${P.today} / ${cap}</span></div>
@@ -1178,7 +1198,8 @@ async function vJeux(){lStop();pStop();dStop();
   +g('⚽','Penalty','2 joueurs en ligne · 5 tirs chacun · devine où va le ballon','data-pg="play"')
   +g('❌','Morpion','2 joueurs en ligne · aligne 3 symboles avant ton adversaire','data-dg="play" data-k="morpion"')
   +g('🔴','Puissance 4','2 joueurs en ligne · aligne 4 jetons en ligne, colonne ou diagonale','data-dg="play" data-k="p4"')
-  +g('🏎️','Course de voitures','2 joueurs en ligne · tapez le plus vite possible, le premier arrivé gagne','data-dg="play" data-k="course"')}
+  +g('🏎️','Course de voitures','2 joueurs en ligne · tapez le plus vite possible, le premier arrivé gagne','data-dg="play" data-k="course"');
+  dailyCard()}
 async function rewardModal(){const c=await cfg();
   modal(`<h3>🎁 Mon cadeau</h3><p class="muted" style="margin-top:0">Choisis ton cadeau. L'administrateur le valide puis te l'envoie.</p>
   <select id="rw_k"><option value="forfait">Forfait internet (${esc(c.pts_gift||'')})</option><option value="boutique">Un article de la boutique</option></select>
@@ -1245,7 +1266,7 @@ async function lRender(){const g=LG.g,v=$('#view');if(!g||S.tab!=='jeux')return;
   if(LG.g!==g)return lRender();
   if(g.status==='waiting'){v.innerHTML=`<div class="card" style="text-align:center"><div style="font-size:48px">⏳</div><h3>Recherche d'un adversaire…</h3><div class="muted" style="margin-bottom:12px">La partie démarre dès qu'un autre joueur appuie sur « Jouer ».</div><button class="btn sec" data-lg="quit">Annuler</button></div>`;return}
   const opp=S.cache[oid],mine=g.status==='playing'&&st.turn===me,mv=mine&&st.dice!=null?lMov(st,me,st.dice):[];
-  let t;if(g.status==='done')t=st.winner===me?'🏆 Tu as gagné !':'😕 '+esc(name(opp))+' a gagné'+(st.msg==='Abandon'?' (abandon)':'');
+  let t;if(g.status==='done')t=st.winner===me?'🏆 Tu as gagné !'+winShare('Ludo'):'😕 '+esc(name(opp))+' a gagné'+(st.msg==='Abandon'?' (abandon)':'');
   else t=mine?(st.dice!=null?'Dé : '+st.dice+' — touche un pion doré':'À toi de lancer 🎲'):'Tour de '+esc(name(opp))+'…';
   v.innerHTML=`<div class="card"><div class="ph" style="margin:0">${av(opp,36)}<div><b>${esc(name(opp))}</b><span class="muted">Adversaire (rouge) · toi : bleu</span></div></div></div>
   <div class="card" style="text-align:center"><div style="font-weight:700;margin-bottom:6px">${t}</div>${lBoard(st,me,mv)}
@@ -1384,7 +1405,7 @@ function raceRender(g,oid){
     raceSetCar('#car_m',pos[me]||0);
     const m=$('#race_msg');if(m)m.textContent=st.winner===me?'🏆 Tu as gagné !':'😕 '+name(opp)+' a gagné'+(st.msg==='Abandon'?' (abandon)':'');
     const b=$('#race_btn');if(b)b.disabled=true;
-    const en=$('#race_end');if(en)en.innerHTML=`<button class="btn" data-dg="play" data-k="${g.kind}">Rejouer</button><button class="btn sec" data-dg="quit">Quitter</button>`}}
+    const en=$('#race_end');if(en)en.innerHTML=(st.winner===me?winShare('jeu de Course'):'')+`<button class="btn" data-dg="play" data-k="${g.kind}">Rejouer</button><button class="btn sec" data-dg="quit">Quitter</button>`}}
 async function dRender(){const g=DG.g,v=$('#view');if(!g||S.tab!=='jeux')return;
   const me=dMe(),st=g.state||{},oid=me===0?g.p2:g.p1;
   if(oid&&!S.cache[oid]){const r=await sb.from('profiles').select('*').eq('id',oid).maybeSingle();S.cache[oid]=r.data||{id:oid}}
@@ -1392,7 +1413,7 @@ async function dRender(){const g=DG.g,v=$('#view');if(!g||S.tab!=='jeux')return;
   if(g.status==='waiting'){v.innerHTML=`<div class="card" style="text-align:center"><div style="font-size:48px">⏳</div><h3>Recherche d'un adversaire…</h3><div class="muted" style="margin-bottom:12px">La partie démarre dès qu'un autre joueur appuie sur « Jouer ».</div><button class="btn sec" data-dg="quit">Annuler</button></div>`;return}
   if(g.kind==='course')return raceRender(g,oid);
   const opp=S.cache[oid],mine=g.status==='playing'&&st.turn===me,mk=g.kind==='p4'?['🔴','🟡']:['✕','◯'];
-  let t;if(g.status==='done')t=st.winner===me?'🏆 Tu as gagné !':st.winner===-1?'🤝 Match nul':'😕 '+esc(name(opp))+' a gagné'+(st.msg==='Abandon'?' (abandon)':'');
+  let t;if(g.status==='done')t=st.winner===me?'🏆 Tu as gagné !'+winShare(g.kind==='p4'?'Puissance 4':'Morpion'):st.winner===-1?'🤝 Match nul':'😕 '+esc(name(opp))+' a gagné'+(st.msg==='Abandon'?' (abandon)':'');
   else t=mine?'À toi de jouer !':'Tour de '+esc(name(opp))+'…';
   v.innerHTML=`<div class="card"><div class="ph" style="margin:0">${av(opp,36)}<div><b>${esc(name(opp))}</b><span class="muted">${DNAME[g.kind]} · adversaire ${mk[1-me]} · toi ${mk[me]}</span></div></div></div>
   <div class="card" style="text-align:center"><div style="font-weight:700;margin-bottom:10px">${t}</div>${dBoard(g,mine)}
@@ -1481,6 +1502,7 @@ document.addEventListener('click',async e=>{
    case'rpdel':return decideReport(id,true);
    case'rpok':return decideReport(id,false);
    case'rules':return rulesModal();
+   case'claimdaily':return claimDaily();
    case'pok':return decidePremium(id,true);
    case'pno':return decidePremium(id,false);
    case'logout':clearInterval(S.hb);if(S.rt)sb.removeChannel(S.rt);await sb.auth.signOut();return
