@@ -150,7 +150,7 @@ function av(p,s=40){const n=name(p);return p?.avatar_url?`<img class="av" style=
 function ago(d){const s=(Date.now()-new Date(d))/1000;if(s<60)return"à l'instant";if(s<3600)return Math.floor(s/60)+' min';if(s<86400)return Math.floor(s/3600)+' h';if(s<604800)return Math.floor(s/86400)+' j';return new Date(d).toLocaleDateString('fr-FR')}
 function hm(d){return new Date(d).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}
 async function getProfiles(ids){ids=[...new Set(ids)].filter(i=>i&&!S.cache[i]);if(!ids.length)return;const{data}=await sb.from('profiles').select('*').in('id',ids);(data||[]).forEach(p=>S.cache[p.id]=p)}
-async function upload(file){if(file.size>25*1024*1024)throw new Error('Fichier trop lourd (25 Mo max)');const ext=(file.name.split('.').pop()||'bin').replace(/[^a-z0-9]/gi,'').slice(0,5);const path=`${S.me.id}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;const{error}=await sb.storage.from('media').upload(path,file,{contentType:file.type});if(error)throw error;return sb.storage.from('media').getPublicUrl(path).data.publicUrl}
+async function upload(file){if(file.size>25*1024*1024)throw new Error('Fichier trop lourd (25 Mo max)');if((file.type||'').startsWith('video/')&&file.size>15*1024*1024)throw new Error('Vidéo trop lourde (15 Mo max). Raccourcis-la.');file=await shrinkImage(file);const ext=(file.name.split('.').pop()||'bin').replace(/[^a-z0-9]/gi,'').slice(0,5);const path=`${S.me.id}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;const{error}=await sb.storage.from('media').upload(path,file,{contentType:file.type});if(error)throw error;return sb.storage.from('media').getPublicUrl(path).data.publicUrl}
 function modal(html){closeModal();const m=document.createElement('div');m.id='modal';m.className='overlay';m.innerHTML=`<div class="sheet">${html}</div>`;m.addEventListener('mousedown',e=>{if(e.target===m)closeModal()});document.body.appendChild(m)}
 function closeModal(){$('#modal')?.remove()}
 function applyTheme(){document.body.classList.toggle('dark',!!S.settings?.dark_mode);document.body.style.fontSize=LS.get('u_font','16px')}
@@ -222,7 +222,7 @@ function shell(){
   <div id="view"></div>
   <nav>${[['fil','🏠','Fil'],['videos','🎬','Vidéos'],['shop','🛍️','Boutique'],['notifs','🔔','Notifs'],['profil','👤','Profil'],['reglages','⚙️','Réglages']].map(([t,i,l])=>`<button data-act="go" data-t="${t}" data-nav="${t}"><span class="i">${i}</span>${l}${t==='notifs'?'<span class="bdg" id="b_n" hidden></span>':''}</button>`).join('')}</nav>`;
 }
-function go(t,arg){
+function go(t,arg){S.plimit=20;
   if(REC){REC.send=false;REC.mr.stop()}
   S.tab=t;if(t!=='chat')S.chatWith=null;if(t!=='jeux'){lStop();pStop();dStop()}
   if(t==='profil')S.viewing=arg||S.me.id;
@@ -240,8 +240,8 @@ async function refreshBadges(){
 }
 function heartbeat(){
   clearInterval(S.hb);
-  const f=async()=>{if(!S.me)return;await sb.from('profiles').update({last_seen:S.settings?.show_online===false?null:new Date().toISOString()}).eq('id',S.me.id)};
-  f();S.hb=setInterval(f,60000);
+  const f=async()=>{if(!S.me||document.hidden)return;await sb.from('profiles').update({last_seen:S.settings?.show_online===false?null:new Date().toISOString()}).eq('id',S.me.id)};
+  f();S.hb=setInterval(f,90000);if(!S.hbv){S.hbv=1;document.addEventListener('visibilitychange',()=>{if(!document.hidden)f()})}
 }
 function subscribe(){
   if(S.rt)sb.removeChannel(S.rt);
@@ -391,7 +391,7 @@ function openStory(uid){
 /* ---------- publications ---------- */
 async function loadPosts(uid,vid){
   const box=$('#posts');if(!box)return;
-  let q=sb.from('posts').select('*').order('created_at',{ascending:false}).limit(50);
+  S.lpArgs=[uid,vid];const PL=S.plimit||20;let q=sb.from('posts').select('*').order('created_at',{ascending:false}).limit(PL);
   if(vid)q=q.not('video_url','is',null);if(uid)q=q.eq('user_id',uid);else if(S.filter==='friends'&&!vid)q=q.in('user_id',[S.me.id,...friendIds()]);
   const{data,error}=await q;if(error){box.innerHTML=`<div class="empty">${esc(error.message)}</div>`;return}
   S.posts=data||[];const ids=S.posts.map(p=>p.id);
@@ -411,10 +411,10 @@ function renderPosts(){
     const u=S.cache[p.user_id],lk=S.likes[p.id]||[],mine=lk.includes(S.me.id);
     return`<div class="card" id="p_${p.id}"><div class="ph" data-act="profil" data-id="${p.user_id}">${av(u,42)}<div style="flex:1"><b>${esc(name(u))}</b><span class="muted">${ago(p.created_at)}</span></div>${p.user_id===S.me.id?`<button class="btn sec sm" data-act="delpost" data-id="${p.id}">🗑</button>`:`<button class="btn sec sm" data-act="report" data-id="${p.id}" data-k="post">🚩</button>`}</div>
     ${p.content?`<div class="pt">${esc(p.content)}</div>`:''}
-    <div class="pm">${p.image_url?`<img src="${esc(p.image_url)}" loading="lazy" alt="">`:''}${p.video_url?`<video src="${esc(p.video_url)}" controls playsinline preload="metadata"></video>`:''}</div>
+    <div class="pm">${p.image_url?(LS.get('u_lowdata','0')==='1'?`<button class="btn sec sm" data-act="showimg" data-src="${esc(p.image_url)}">📷 Afficher la photo</button>`:`<img src="${esc(p.image_url)}" loading="lazy" decoding="async" alt="">`):''}${p.video_url?`<video src="${esc(p.video_url)}" controls playsinline preload="${LS.get('u_lowdata','0')==='1'?'none':'metadata'}"></video>`:''}</div>
     <div class="muted" style="margin-top:8px">${lk.length?`👍 ${lk.length}`:''}${S.coms[p.id]?` · ${S.coms[p.id]} commentaire(s)`:''}</div>
     <div class="acts"><button class="${mine?'on':''}" data-act="like" data-id="${p.id}">👍 J'aime</button><button data-act="coms" data-id="${p.id}">💬 Commenter</button></div>
-    <div id="c_${p.id}" hidden></div></div>`+(((ix+1)%5===0)?adCard(AD,adn++):'')}).join('');adSeen();
+    <div id="c_${p.id}" hidden></div></div>`+(((ix+1)%5===0)?adCard(AD,adn++):'')}).join('');adSeen();if(S.posts.length>=PL)box.insertAdjacentHTML('beforeend','<button class="btn sec" style="width:100%;margin:8px 0" data-act="morepost">Voir plus de publications</button>');
   if(S.tab==='videos')watchVideos();
 }
 async function toggleLike(id){
@@ -526,7 +526,7 @@ async function vEvents(){
   const up=list.filter(e=>new Date(e.starts_at)>=lim),past=list.filter(e=>new Date(e.starts_at)<lim).reverse().slice(0,10);
   const card=e=>{
     const a=att[e.id]||[],going=a.includes(S.me.id),d=new Date(e.starts_at);
-    return`<div class="card">${e.image_url?`<img src="${esc(e.image_url)}" style="width:100%;border-radius:10px;margin-bottom:8px;max-height:220px;object-fit:cover" alt="">`:''}
+    return`<div class="card">${e.image_url?`<img src="${esc(e.image_url)}" style="width:100%;border-radius:10px;margin-bottom:8px;max-height:220px;object-fit:cover" loading="lazy" decoding="async" alt="">`:''}
     <div class="muted" style="color:var(--red);font-weight:700">${esc(d.toLocaleString('fr-FR',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}))}</div>
     <b style="font-size:18px">${esc(e.title)}</b>${e.location?`<div class="muted">📍 ${esc(e.location)}</div>`:''}${e.description?`<div class="pt" style="margin-top:6px">${esc(e.description)}</div>`:''}
     <div class="muted" style="margin:8px 0">Par ${esc(name(S.cache[e.user_id]))} · ${a.length} participant(s)</div>
@@ -609,7 +609,7 @@ async function cfg(){
 let VIO=null;
 function watchVideos(){
   if(VIO)VIO.disconnect();
-  if(LS.get('u_autoplay','1')!=='1')return;
+  if(LS.get('u_autoplay','0')!=='1')return;
   VIO=new IntersectionObserver(es=>es.forEach(e=>{const v=e.target;if(e.isIntersecting&&e.intersectionRatio>.6){v.muted=true;v.play().catch(()=>{})}else v.pause()}),{threshold:[0,.6]});
   document.querySelectorAll('#posts video').forEach(v=>VIO.observe(v));
 }
@@ -620,7 +620,7 @@ async function vVideos(){
 function newVideo(){
   modal(`<h3>Publier une vidéo</h3><textarea id="nv_t" placeholder="Décrivez votre vidéo…" maxlength="300"></textarea>
   <div class="row"><label class="filebtn">🎬 Choisir la vidéo<input type="file" id="nv_f" accept="video/*" hidden></label><span class="muted" id="nv_n"></span></div>
-  <p class="muted">25 Mo maximum.</p>
+  <p class="muted">Les photos sont réduites automatiquement. Vidéos : 15 Mo maximum.</p>
   <div class="row" style="margin-top:8px"><button class="btn" id="nv_go" style="flex:1">Publier</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
   $('#nv_f').onchange=e=>$('#nv_n').textContent=e.target.files[0]?.name?.slice(0,22)||'';
   $('#nv_go').onclick=async()=>{
@@ -636,8 +636,8 @@ function newVideo(){
 }
 
 /* ---------- boutique ---------- */
-const thumb=p=>`<div class="thumb" style="${p.image_url?`background-image:url('${esc(p.image_url)}')`:''}">${p.image_url?'':'🛍️'}</div>`;
-const prodCard=p=>`<div class="prod" data-act="prod" data-id="${p.id}"><div class="im" style="${p.image_url?`background-image:url('${esc(p.image_url)}')`:''}">${p.image_url?'':'🛍️'}${boosted(p)?'<i class="spons">⭐ Sponsorisé</i>':''}</div><div class="t"><b>${esc(p.name)}</b><span class="pri">${money(p.price)} ${esc(p.currency)}</span><div class="muted">${esc(p.city||'')}${p.views?` · 👁 ${p.views}`:''}</div></div></div>`;
+const thumb=p=>`<div class="thumb" ${p.image_url?`data-bg="${esc(p.image_url)}"`:''}>${p.image_url?'':'🛍️'}</div>`;
+const prodCard=p=>`<div class="prod" data-act="prod" data-id="${p.id}"><div class="im" ${p.image_url?`data-bg="${esc(p.image_url)}"`:''}>${p.image_url?'':'🛍️'}${boosted(p)?'<i class="spons">⭐ Sponsorisé</i>':''}</div><div class="t"><b>${esc(p.name)}</b><span class="pri">${money(p.price)} ${esc(p.currency)}</span><div class="muted">${esc(p.city||'')}${p.views?` · 👁 ${p.views}`:''}</div></div></div>`;
 function mineCard(p){
   const pend=(S.boostReq||[]).find(b=>b.product_id===String(p.id)&&b.status==='pending');
   return`<div class="card"><div class="row" style="flex-wrap:nowrap;cursor:pointer" data-act="prod" data-id="${p.id}">${thumb(p)}<div style="flex:1;min-width:0"><b>${esc(p.name)}</b><span class="pri">${money(p.price)} ${esc(p.currency)}</span><div class="muted">👁 ${p.views||0} · Stock ${p.stock??1}${p.sold?' · Vendu':''}</div>${boosted(p)?`<div class="muted" style="color:#b7791f">⭐ Sponsorisé jusqu'au ${new Date(p.boosted_until).toLocaleDateString('fr-FR')}</div>`:pend?'<div class="muted">⏳ Boost en attente de validation</div>':''}</div></div>
@@ -825,6 +825,31 @@ async function onlineCard(){
   box.innerHTML=`<div class="card"><b>${n>1?'🟢 '+n+' joueurs en ligne maintenant':'😴 Personne d\'autre en ligne pour le moment'}</b>${c.game_rdv?`<div style="margin-top:4px">${esc(c.game_rdv)}</div>`:''}<div class="muted" style="margin-top:4px">Invite un ami : c'est plus amusant à deux.</div></div>`;
 }
 
+/* ---------- ÉCONOMIE DE DONNÉES ---------- */
+async function shrinkImage(file){
+  if(!file||!/^image\/(jpeg|png|webp)$/.test(file.type||''))return file;
+  try{
+    const bmp=await createImageBitmap(file);
+    const sc=Math.min(1,1280/Math.max(bmp.width,bmp.height));
+    const w=Math.max(1,Math.round(bmp.width*sc)),h=Math.max(1,Math.round(bmp.height*sc));
+    const cv=document.createElement('canvas');cv.width=w;cv.height=h;
+    const cx=cv.getContext('2d');cx.fillStyle='#fff';cx.fillRect(0,0,w,h);cx.drawImage(bmp,0,0,w,h);
+    if(bmp.close)bmp.close();
+    const blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',.72));
+    if(!blob||blob.size>=file.size)return file;
+    return new File([blob],((file.name||'photo').replace(/\.[^.]+$/,'')||'photo')+'.jpg',{type:'image/jpeg'});
+  }catch(e){return file}
+}
+/* images de fond (boutique) : chargées seulement quand elles deviennent visibles */
+const BGO=typeof IntersectionObserver!=='undefined'?new IntersectionObserver(es=>es.forEach(e=>{
+  if(e.isIntersecting){const el=e.target;el.style.backgroundImage="url('"+el.dataset.bg+"')";BGO.unobserve(el)}
+}),{rootMargin:'200px'}):null;
+function bgScan(){document.querySelectorAll('[data-bg]:not([data-bgo])').forEach(el=>{
+  el.dataset.bgo='1';
+  if(BGO)BGO.observe(el);else el.style.backgroundImage="url('"+el.dataset.bg+"')";
+})}
+if(typeof MutationObserver!=='undefined'&&document.body)new MutationObserver(bgScan).observe(document.body,{childList:true,subtree:true});
+
 /* ---------- SEMAINE 1 : partage de victoire et bonus quotidien ---------- */
 function winShare(game){
   if(!S.myCode&&S.me)Promise.resolve(sb.rpc('my_friend_code')).then(r=>{if(r&&r.data)S.myCode=r.data}).catch(()=>{});
@@ -988,7 +1013,7 @@ async function paySet(){
   };
 }
 function aboutModal(){
-  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.5</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
+  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.6</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
 }
 const lsw=(k,label,sub,def='1')=>`<div class="set"><div><b>${label}</b>${sub?`<div class="muted">${sub}</div>`:''}</div><button class="sw ${LS.get(k,def)==='1'?'on':''}" data-act="lsw" data-id="${k}"></button></div>`;
 
@@ -1037,7 +1062,7 @@ async function vReglages(){
   <div class="card"><h4>Notifications</h4>${sw('notify_likes','J\'aime')}${sw('notify_comments','Commentaires')}${sw('notify_friend_requests','Demandes d\'amis')}${sw('notify_messages','Messages')}</div>
   <div class="card"><h4>Confidentialité</h4>${sw('show_online','Afficher quand je suis en ligne','Vos amis voient le point vert')}</div>
   <div class="card"><h4>Apparence</h4>${sw('dark_mode','Mode sombre')}<div class="set"><b>Taille du texte</b><div class="row">${[['14px','A−'],['16px','A'],['18px','A+']].map(([s,l])=>`<button class="btn sm ${LS.get('u_font','16px')===s?'':'sec'}" data-act="font" data-id="${s}">${l}</button>`).join('')}</div></div></div>
-  <div class="card"><h4>Vidéos</h4>${lsw('u_autoplay','Lecture automatique','Les vidéos démarrent en défilant, sans le son')}</div>
+  <div class="card"><h4>Données</h4>${lsw('u_lowdata','Économie de données','Les photos du fil ne se chargent que si vous appuyez dessus','0')}${lsw('u_autoplay','Lecture automatique des vidéos','Les vidéos démarrent en défilant, sans le son','0')}</div>
   <div class="card"><h4>Boutique</h4><div class="set" data-act="myshop" style="cursor:pointer"><b>🏪 Ma boutique</b><span>›</span></div></div>
   <div class="card"><h4>Sécurité</h4><div class="set" data-act="logoutall" style="cursor:pointer"><b>📱 Se déconnecter de tous les appareils</b><span>›</span></div></div>
   <div class="card"><h4>Aide</h4><div class="set" data-act="rules" style="cursor:pointer"><b>📜 Règles de la communauté</b><span>›</span></div><div class="set" data-act="about" style="cursor:pointer"><b>ℹ️ À propos d'Urbain</b><span>›</span></div></div>
@@ -1548,6 +1573,8 @@ document.addEventListener('click',async e=>{
    case'rpok':return decideReport(id,false);
    case'rules':return rulesModal();
    case'claimdaily':return claimDaily();
+   case'morepost':S.plimit=(S.plimit||20)+20;return loadPosts(...(S.lpArgs||[]));
+   case'showimg':{const im=new Image();im.src=el.dataset.src;im.alt='';el.replaceWith(im);return}
    case'ambshare':return ambShare();
    case'pok':return decidePremium(id,true);
    case'pno':return decidePremium(id,false);
