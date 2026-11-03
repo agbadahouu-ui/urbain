@@ -56,6 +56,13 @@ textarea{resize:vertical;min-height:70px}
 .ph b{display:block;cursor:pointer}
 .pm img,.pm video{width:100%;border-radius:10px;margin-top:8px;max-height:480px;object-fit:cover;background:#000}
 .pt{white-space:pre-wrap;word-wrap:break-word}
+.bgrow{display:flex;gap:8px;overflow-x:auto;padding:4px 0 10px}
+.bgs{flex:0 0 34px;width:34px;height:34px;border-radius:50%;border:2px solid transparent;padding:0;cursor:pointer;font-size:12px;font-weight:700;color:var(--tx)}
+.bgs.none{background:var(--soft)}
+.bgs.on{border-color:var(--tx);transform:scale(1.12)}
+.pbgta{min-height:170px;text-align:center;font-size:24px;font-weight:700;border:0;text-shadow:0 1px 3px rgba(0,0,0,.35)}
+.pbgta::placeholder{color:rgba(255,255,255,.8)}
+.pbg{min-height:170px;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:700;padding:24px 16px;border-radius:14px;text-shadow:0 1px 3px rgba(0,0,0,.3);margin:6px 0}
 .acts{display:flex;border-top:1px solid var(--bd);margin-top:10px;padding-top:6px}
 .acts button{flex:1;border:0;background:none;color:var(--mu);font-weight:700;padding:8px}
 .acts button.on{color:var(--pr)}
@@ -314,11 +321,11 @@ async function vFil(){
   const v=$('#view'),me=S.profile;
   v.innerHTML=`<div class="notes" id="notes"></div><div class="stories" id="stories"></div>
   <div class="card"><div class="ph">${av(me,40)}<b style="cursor:default">${esc(name(me))}</b></div>
-  <textarea id="pt" placeholder="Quoi de neuf, ${esc(name(me).split(' ')[0])} ?"></textarea>
+  <textarea id="pt" placeholder="Quoi de neuf, ${esc(name(me).split(' ')[0])} ?"></textarea>${bgRow('bgrow_pt','#pt','#pf')}
   <div class="row"><label class="filebtn">📷 Photo / Vidéo<input type="file" id="pf" accept="image/*,video/*" hidden></label><span class="muted" id="pfn"></span><button class="btn" id="pub" style="margin-left:auto">Publier</button></div></div>
   <div class="chips"><button class="chip ${S.filter==='all'?'on':''}" data-act="filter" data-id="all">Tout</button><button class="chip ${S.filter==='friends'?'on':''}" data-act="filter" data-id="friends">Amis</button></div>
   <div id="posts"><div class="loading">Chargement…</div></div>`;
-  $('#pf').onchange=e=>$('#pfn').textContent=e.target.files[0]?.name?.slice(0,22)||'';
+  $('#pf').onchange=e=>{$('#pfn').textContent=e.target.files[0]?.name?.slice(0,22)||'';applyBg($('#bgrow_pt'))};
   $('#pub').onclick=publishPost;
   loadNotes();loadStories();loadPosts();
 }
@@ -327,7 +334,7 @@ async function publishPost(){
   if(!t&&!f)return toast('Écrivez quelque chose ou ajoutez un média.');
   b.disabled=true;b.textContent='Envoi…';
   try{
-    const row={user_id:S.me.id,content:t||null};
+    const row={user_id:S.me.id,content:t||null};const bgk=bgOf('#bgrow_pt',t,f);if(bgk)row.bg=bgk;
     if(f){const u=await upload(f);if(f.type.startsWith('video'))row.video_url=u;else row.image_url=u}
     const{error}=await sb.from('posts').insert(row);if(error)throw error;
     toast('Publié ✅');vFil();
@@ -410,7 +417,7 @@ function renderPosts(){
   S.adShown=new Set();const AD=adsFor();let adn=0;box.innerHTML=S.posts.map((p,ix)=>{
     const u=S.cache[p.user_id],lk=S.likes[p.id]||[],mine=lk.includes(S.me.id);
     return`<div class="card" id="p_${p.id}"><div class="ph" data-act="profil" data-id="${p.user_id}">${av(u,42)}<div style="flex:1"><b>${esc(name(u))}</b><span class="muted">${ago(p.created_at)}</span></div>${p.user_id===S.me.id?`<button class="btn sec sm" data-act="delpost" data-id="${p.id}">🗑</button>`:`<button class="btn sec sm" data-act="report" data-id="${p.id}" data-k="post">🚩</button>`}</div>
-    ${p.content?`<div class="pt">${esc(p.content)}</div>`:''}
+    ${p.content?(PBG[p.bg]&&!p.image_url&&!p.video_url?`<div class="pt pbg" style="${bgStyle(p.bg)};font-size:${p.content.length<80?26:p.content.length<200?21:17}px">${esc(p.content)}</div>`:`<div class="pt">${esc(p.content)}</div>`):''}
     <div class="pm">${p.image_url?(LS.get('u_lowdata','0')==='1'?`<button class="btn sec sm" data-act="showimg" data-src="${esc(p.image_url)}">📷 Afficher la photo</button>`:`<img src="${esc(p.image_url)}" loading="lazy" decoding="async" alt="">`):''}${p.video_url?`<video src="${esc(p.video_url)}" controls playsinline preload="${LS.get('u_lowdata','0')==='1'?'none':'metadata'}"></video>`:''}</div>
     <div class="muted" style="margin-top:8px">${lk.length?`👍 ${lk.length}`:''}${S.coms[p.id]?` · ${S.coms[p.id]} commentaire(s)`:''}</div>
     <div class="acts"><button class="${mine?'on':''}" data-act="like" data-id="${p.id}">👍 J'aime</button><button data-act="coms" data-id="${p.id}">💬 Commenter</button></div>
@@ -825,6 +832,35 @@ async function onlineCard(){
   box.innerHTML=`<div class="card"><b>${n>1?'🟢 '+n+' joueurs en ligne maintenant':'😴 Personne d\'autre en ligne pour le moment'}</b>${c.game_rdv?`<div style="margin-top:4px">${esc(c.game_rdv)}</div>`:''}<div class="muted" style="margin-top:4px">Invite un ami : c'est plus amusant à deux.</div></div>`;
 }
 
+/* ---------- FONDS COLORÉS POUR LES PUBLICATIONS ---------- */
+const PBG={
+  c1:['linear-gradient(135deg,#ff5f6d,#ffc371)','#fff'],
+  c2:['linear-gradient(135deg,#1877f2,#00c6ff)','#fff'],
+  c3:['linear-gradient(135deg,#11998e,#38ef7d)','#fff'],
+  c4:['linear-gradient(135deg,#8e2de2,#4a00e0)','#fff'],
+  c5:['linear-gradient(135deg,#f7971e,#ffd200)','#3a2a00'],
+  c6:['linear-gradient(135deg,#ee0979,#ff6a00)','#fff'],
+  c7:['linear-gradient(135deg,#232526,#414345)','#fff'],
+  c8:['linear-gradient(135deg,#0f2027,#2c5364)','#fff'],
+  c9:['linear-gradient(135deg,#fc466b,#3f5efb)','#fff'],
+  c10:['linear-gradient(135deg,#43cea2,#185a9d)','#fff'],
+  c11:['linear-gradient(135deg,#ffecd2,#fcb69f)','#4a2a1a'],
+  c12:['linear-gradient(135deg,#a8edea,#fed6e3)','#2a3a4a'],
+  c13:['linear-gradient(90deg,#008751 0 33%,#fcd116 33% 66%,#e8112d 66%)','#fff']
+};
+function bgRow(id,ta,f){return`<div class="bgrow" id="${id}" data-ta="${ta}" data-f="${f}" data-k=""><button type="button" class="bgs on none" data-act="pickbg" data-k="">Aa</button>${Object.keys(PBG).map(k=>`<button type="button" class="bgs" data-act="pickbg" data-k="${k}" style="background:${PBG[k][0]}"></button>`).join('')}</div>`}
+function applyBg(row){
+  if(!row)return;
+  const k=row.dataset.k,b=PBG[k],ta=document.querySelector(row.dataset.ta),f=document.querySelector(row.dataset.f);
+  row.querySelectorAll('.bgs').forEach(x=>x.classList.toggle('on',x.dataset.k===k));
+  const on=!!b&&!(f&&f.files&&f.files[0]);
+  if(!ta)return;
+  ta.classList.toggle('pbgta',on);ta.style.background=on?b[0]:'';ta.style.color=on?b[1]:'';
+}
+function pickBg(el){const row=el.closest('.bgrow');if(!row)return;row.dataset.k=el.dataset.k||'';applyBg(row)}
+function bgOf(rowSel,t,f){const row=document.querySelector(rowSel),k=row?row.dataset.k:'';return(k&&PBG[k]&&t&&!f)?k:null}
+const bgStyle=k=>PBG[k]?'background:'+PBG[k][0]+';color:'+PBG[k][1]:'';
+
 /* ---------- ÉCONOMIE DE DONNÉES ---------- */
 async function shrinkImage(file){
   if(!file||!/^image\/(jpeg|png|webp)$/.test(file.type||''))return file;
@@ -1013,7 +1049,7 @@ async function paySet(){
   };
 }
 function aboutModal(){
-  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.6</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
+  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.7</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
 }
 const lsw=(k,label,sub,def='1')=>`<div class="set"><div><b>${label}</b>${sub?`<div class="muted">${sub}</div>`:''}</div><button class="sw ${LS.get(k,def)==='1'?'on':''}" data-act="lsw" data-id="${k}"></button></div>`;
 
@@ -1083,16 +1119,16 @@ function plusMenu(){
   <button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
 }
 function newPost(){
-  modal(`<h3>Nouvelle publication</h3><textarea id="np_t" placeholder="Quoi de neuf ?"></textarea>
+  modal(`<h3>Nouvelle publication</h3><textarea id="np_t" placeholder="Quoi de neuf ?"></textarea>${bgRow('bgrow_np','#np_t','#np_f')}
   <div class="row"><label class="filebtn">📷 Photo / Vidéo<input type="file" id="np_f" accept="image/*,video/*" hidden></label><span class="muted" id="np_n"></span></div>
   <div class="row" style="margin-top:14px"><button class="btn" id="np_go" style="flex:1">Publier</button><button class="btn sec" onclick="closeModal()">Annuler</button></div>`);
-  $('#np_f').onchange=e=>$('#np_n').textContent=e.target.files[0]?.name?.slice(0,22)||'';
+  $('#np_f').onchange=e=>{$('#np_n').textContent=e.target.files[0]?.name?.slice(0,22)||'';applyBg($('#bgrow_np'))};
   $('#np_go').onclick=async()=>{
     const t=$('#np_t').value.trim(),f=$('#np_f').files[0],b=$('#np_go');if(guard(t))return;
     if(!t&&!f)return toast('Écrivez quelque chose ou ajoutez un média.');
     b.disabled=true;b.textContent='Envoi…';
     try{
-      const row={user_id:S.me.id,content:t||null};
+      const row={user_id:S.me.id,content:t||null};const bgk=bgOf('#bgrow_np',t,f);if(bgk)row.bg=bgk;
       if(f){const u=await upload(f);if(f.type.startsWith('video'))row.video_url=u;else row.image_url=u}
       const{error}=await sb.from('posts').insert(row);if(error)throw error;
       closeModal();toast('Publié ✅');go('fil');
@@ -1573,6 +1609,7 @@ document.addEventListener('click',async e=>{
    case'rpok':return decideReport(id,false);
    case'rules':return rulesModal();
    case'claimdaily':return claimDaily();
+   case'pickbg':return pickBg(el);
    case'morepost':S.plimit=(S.plimit||20)+20;return loadPosts(...(S.lpArgs||[]));
    case'showimg':{const im=new Image();im.src=el.dataset.src;im.alt='';el.replaceWith(im);return}
    case'ambshare':return ambShare();
