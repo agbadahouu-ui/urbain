@@ -145,7 +145,7 @@ const S={me:null,profile:null,settings:null,cache:{},fr:[],tab:'fil',filter:'all
 /* ---------- utilitaires ---------- */
 function toast(m){let t=$('#toast');if(t)t.remove();t=document.createElement('div');t.id='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2600)}
 function errMsg(e){const m=String(e?.message||e||'');return /POINTS_INSUFFISANTS/.test(m)?'Jetons insuffisants.':/COMMISSION_IMPAYEE/.test(m)?'Paie d\'abord ta commission de vente pour publier un nouvel article.':'Erreur : '+m}
-function name(p){const n=p?.full_name||p?.username||'Utilisateur';return p&&S.vip&&S.vip.has(p.id)?n+' 👑':n}
+function name(p){let n=p?.full_name||p?.username||'Utilisateur';if(p&&S.vip&&S.vip.has(p.id))n+=' 👑';if(p&&S.amb&&S.amb.has(p.id))n+=' 🎓';return n}
 function av(p,s=40){const n=name(p);return p?.avatar_url?`<img class="av" style="width:${s}px;height:${s}px" src="${esc(p.avatar_url)}" alt="">`:`<span class="av ini" style="width:${s}px;height:${s}px;font-size:${Math.round(s*.4)}px">${esc(n.slice(0,1).toUpperCase())}</span>`}
 function ago(d){const s=(Date.now()-new Date(d))/1000;if(s<60)return"à l'instant";if(s<3600)return Math.floor(s/60)+' min';if(s<86400)return Math.floor(s/3600)+' h';if(s<604800)return Math.floor(s/86400)+' j';return new Date(d).toLocaleDateString('fr-FR')}
 function hm(d){return new Date(d).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}
@@ -567,11 +567,11 @@ async function vNotifs(){
 const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v===null?d:v}catch(e){return d}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
 const money=n=>Number(n||0).toLocaleString('fr-FR');
 const boosted=p=>!!(p.boosted_until&&new Date(p.boosted_until)>new Date());
-const CATS=['Mode','Électronique','Maison','Auto','Beauté','Alimentation','Services','Autre'];
+const CATS=['Mode','Électronique','Maison','Auto','Beauté','Alimentation','Services','Dépannage','Immobilier','Emploi','Autre'];
 /* ---------- PREMIUM & PARRAINAGE ---------- */
 async function loadVip(){
   const{data}=await sb.from('subscriptions').select('user_id').gt('premium_until',new Date().toISOString());
-  S.vip=new Set((data||[]).map(r=>r.user_id))}
+  S.vip=new Set((data||[]).map(r=>r.user_id));try{const a=await sb.from('ambassadors').select('user_id');S.amb=new Set((a.data||[]).map(r=>r.user_id))}catch(e){S.amb=new Set()}}
 async function premiumCard(){
   const box=$('#premcard');if(!box)return;
   const[c,rq,sb2]=await Promise.all([cfg(),sb.from('premium_requests').select('*').eq('user_id',S.me.id).eq('status','pending').limit(1),sb.from('subscriptions').select('premium_until').eq('user_id',S.me.id).maybeSingle()]);
@@ -781,6 +781,50 @@ async function decideReport(id,remove){
   toast(remove?'Contenu supprimé ✅':'Signalement ignoré');loadAdminMoney();
 }
 
+/* ---------- PLAN : ambassadeurs, visiteurs du profil, joueurs en ligne ---------- */
+async function ambCard(){
+  const box=$('#ambcard');if(!box)return;
+  const[c,r]=await Promise.all([cfg(),sb.rpc('ambassador_stats')]);
+  const d=r.data;
+  if(r.error||!d||!d.is_ambassador){box.innerHTML='';return}
+  const goal=parseInt(c.amb_goal)||50,rew=parseInt(c.amb_reward)||5000;
+  box.innerHTML=`<div class="card"><h4>🎓 Ambassadeur${d.school?' · '+esc(d.school):''}</h4>
+  <div class="muted" style="margin-bottom:8px">Invite des étudiants avec ton lien. Pour <b>${goal} inscrits actifs</b> (qui ont joué ou publié), tu gagnes <b>${money(rew)} FCFA</b>.</div>
+  <div class="set"><div><b>${d.invited}</b><div class="muted">inscrits avec ton lien</div></div><div><b>${d.active}</b><div class="muted">actifs</div></div></div>
+  <div style="background:var(--soft);border-radius:8px;height:12px;overflow:hidden;margin:8px 0"><div style="width:${Math.min(100,Math.round(d.active*100/goal))}%;height:100%;background:var(--pr)"></div></div>
+  <button class="btn" style="width:100%" data-act="ambshare">📲 Envoyer mon lien sur WhatsApp</button></div>`;
+}
+async function ambShare(){
+  if(!S.myCode){const r=await sb.rpc('my_friend_code');if(r.data)S.myCode=r.data}
+  if(!S.myCode)return toast('Code introuvable, réessayez.');
+  window.open('https://wa.me/?text='+encodeURIComponent(friendMsg(S.myCode)),'_blank','noopener');
+}
+async function loadAmbAdmin(){
+  const box=$('#money');if(!box)return;
+  const{data}=await sb.rpc('admin_ambassadors'),l=data||[];
+  await getProfiles(l.map(x=>x.user_id));
+  const c=await cfg(),goal=parseInt(c.amb_goal)||50;
+  box.insertAdjacentHTML('beforeend',`<h4>Ambassadeurs (${l.length})</h4>`+(l.length?l.map(a=>`<div class="set"><div><b>${esc(name(S.cache[a.user_id]))}</b><div class="muted">${esc(a.school||'')} · ${a.invited} inscrits · <b>${a.active} actifs</b>${a.active>=goal?' · ✅ objectif atteint, à payer':''}</div></div></div>`).join(''):'<div class="muted">Aucun ambassadeur. Ajoutez-en avec le SQL du fichier d\'aide.</div>'));
+}
+async function visitorsCard(){
+  const box=$('#viscard');if(!box)return;
+  const{data,error}=await sb.rpc('my_visitors');
+  if(error||!data)return;
+  let h='<div class="card"><h4>👀 Visiteurs de mon profil</h4>';
+  if(data.premium){
+    const l=data.list||[];await getProfiles(l.map(x=>x.id));
+    h+=l.length?l.map(x=>`<div class="li" data-act="profil" data-id="${x.id}">${av(S.cache[x.id],36)}<div class="gr"><b>${esc(name(S.cache[x.id]))}</b><span>${new Date(x.at).toLocaleDateString('fr-FR')}</span></div></div>`).join(''):'<div class="muted">Personne pour le moment.</div>';
+  }else h+=`<div class="muted">${data.count} personne${data.count>1?'s ont':' a'} visité ton profil ces 30 derniers jours. <b>👑 Passe Premium pour voir qui.</b></div>`;
+  box.innerHTML=h+'</div>';
+}
+async function onlineCard(){
+  const box=$('#oncard');if(!box)return;
+  const c=await cfg();
+  const{count}=await sb.from('profiles').select('id',{count:'exact',head:true}).gt('last_seen',new Date(Date.now()-150000).toISOString());
+  const n=count||0;
+  box.innerHTML=`<div class="card"><b>${n>1?'🟢 '+n+' joueurs en ligne maintenant':'😴 Personne d\'autre en ligne pour le moment'}</b>${c.game_rdv?`<div style="margin-top:4px">${esc(c.game_rdv)}</div>`:''}<div class="muted" style="margin-top:4px">Invite un ami : c'est plus amusant à deux.</div></div>`;
+}
+
 /* ---------- SEMAINE 1 : partage de victoire et bonus quotidien ---------- */
 function winShare(game){
   if(!S.myCode&&S.me)Promise.resolve(sb.rpc('my_friend_code')).then(r=>{if(r&&r.data)S.myCode=r.data}).catch(()=>{});
@@ -895,7 +939,7 @@ async function decideAd(id,ok){
 }
 
 /* ---------- argent (administrateur) ---------- */
-async function loadAdminMoney(){await loadAdminMoney0();await loadCommissionsAdmin();await loadRewardsAdmin();await loadPremiumAdmin();await loadAdsAdmin();await loadReportsAdmin()}
+async function loadAdminMoney(){await loadAdminMoney0();await loadCommissionsAdmin();await loadRewardsAdmin();await loadPremiumAdmin();await loadAdsAdmin();await loadReportsAdmin();await loadAmbAdmin()}
 async function commissionModal(id){const[c,r]=await Promise.all([cfg(),sb.from('sales').select('*').eq('product_id',id).eq('status','due').order('created_at',{ascending:false}).limit(1)]),s=(r.data||[])[0];
   if(!s)return;modal(`<h3>✅ Article vendu</h3><p>Ta commission de ${esc(c.shop_commission||10)} % est de <b>${money(s.commission)} ${esc(s.currency||'FCFA')}</b>.</p><p class="muted">Envoie-la par ${esc(c.pay_info)}${c.pay_number?' au <b>'+esc(c.pay_number)+'</b>':''}. Elle est marquée payée dès que l'administrateur l'a reçue.</p><button class="btn" style="width:100%" onclick="closeModal()">OK</button>`)}
 async function commissionBanner(){const{data}=await sb.from('sales').select('*').eq('seller_id',S.me.id).eq('status','due'),l=data||[];if(!l.length||S.tab!=='shop')return;
@@ -944,7 +988,7 @@ async function paySet(){
   };
 }
 function aboutModal(){
-  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.4</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
+  modal(`<h3>👋 À propos d'Urbain</h3><p>Version 2.5</p><p class="muted">Publications, stories, notes, vidéos, messages vocaux, groupes, événements et boutique : tout se retrouve entre amis.</p><button class="btn sec" style="width:100%" onclick="closeModal()">Fermer</button>`);
 }
 const lsw=(k,label,sub,def='1')=>`<div class="set"><div><b>${label}</b>${sub?`<div class="muted">${sub}</div>`:''}</div><button class="sw ${LS.get(k,def)==='1'?'on':''}" data-act="lsw" data-id="${k}"></button></div>`;
 
@@ -965,8 +1009,9 @@ async function vProfil(uid){
   ${nf!==null?`<div class="muted">${nf} ami(s)</div>`:''}
   <div class="row" style="margin-top:8px">${isMe?`<button class="btn sm" data-act="editprofile">✏️ Modifier le profil</button><label class="btn sec sm">Photo<input type="file" accept="image/*" hidden data-up="avatar_url"></label><label class="btn sec sm">Couverture<input type="file" accept="image/*" hidden data-up="cover_url"></label>`:
    !r?`<button class="btn sm" data-act="addfriend" data-id="${uid}">Ajouter</button>`:r.s==='friend'?`<button class="btn sm" data-act="chat" data-id="${uid}">💬 Message</button><button class="btn sec sm" data-act="unfriend" data-id="${r.f.id}">Retirer</button>`:r.s==='sent'?`<button class="btn sec sm" data-act="refuse" data-id="${r.f.id}">Annuler la demande</button>`:`<button class="btn sm" data-act="accept" data-id="${r.f.id}">Confirmer</button>`}</div></div>
-  <h4>Publications</h4><div id="posts"><div class="loading">Chargement…</div></div>`;
+  ${isMe?'<div id="viscard"></div>':''}<h4>Publications</h4><div id="posts"><div class="loading">Chargement…</div></div>`;
   loadPosts(uid);
+  if(isMe)visitorsCard();else Promise.resolve(sb.rpc('record_profile_view',{p_profile:uid})).catch(()=>{});
 }
 function editProfile(){
   const p=S.profile;
@@ -988,7 +1033,7 @@ async function vReglages(){
   <div class="li" data-act="editprofile">${av(S.profile,46)}<div class="gr"><b>${esc(name(S.profile))}</b><span>${esc(S.me.email||'')}</span></div><span>›</span></div>
   <div class="set" data-act="chpass" style="cursor:pointer"><b>🔑 Changer le mot de passe</b><span>›</span></div></div>
   <div class="card" id="premcard"><h4>👑 Urbain Premium</h4><div class="muted">Chargement…</div></div>
-  <div class="card" id="adscard"><h4>📢 Faire ma publicité</h4><div class="muted">Chargement…</div></div>
+  <div id="ambcard"></div><div class="card" id="adscard"><h4>📢 Faire ma publicité</h4><div class="muted">Chargement…</div></div>
   <div class="card"><h4>Notifications</h4>${sw('notify_likes','J\'aime')}${sw('notify_comments','Commentaires')}${sw('notify_friend_requests','Demandes d\'amis')}${sw('notify_messages','Messages')}</div>
   <div class="card"><h4>Confidentialité</h4>${sw('show_online','Afficher quand je suis en ligne','Vos amis voient le point vert')}</div>
   <div class="card"><h4>Apparence</h4>${sw('dark_mode','Mode sombre')}<div class="set"><b>Taille du texte</b><div class="row">${[['14px','A−'],['16px','A'],['18px','A+']].map(([s,l])=>`<button class="btn sm ${LS.get('u_font','16px')===s?'':'sec'}" data-act="font" data-id="${s}">${l}</button>`).join('')}</div></div></div>
@@ -998,7 +1043,7 @@ async function vReglages(){
   <div class="card"><h4>Aide</h4><div class="set" data-act="rules" style="cursor:pointer"><b>📜 Règles de la communauté</b><span>›</span></div><div class="set" data-act="about" style="cursor:pointer"><b>ℹ️ À propos d'Urbain</b><span>›</span></div></div>
   ${adm?`<div class="card"><h4>💰 Revenus et boosts (administrateur)</h4><div id="money"><div class="muted">Chargement…</div></div></div>`:''}
   <div class="card"><button class="btn red" style="width:100%" data-act="logout">Se déconnecter</button></div>`;
-  if(adm)loadAdminMoney();premiumCard();adsCard();
+  if(adm)loadAdminMoney();premiumCard();adsCard();ambCard();
 }
 /* ---------- bouton + : story, publication, note ---------- */
 function plusMenu(){
@@ -1186,7 +1231,7 @@ async function vJeux(){lStop();pStop();dStop();
   const lab=boost?`Jouer ⚡ · ${cost+bc} 🪙`:(cost?`Jouer · ${cost} 🪙`:'Jouer · gratuit');
   const g=(ico,t,d,att)=>`<div class="card" style="text-align:center"><div style="font-size:54px">${ico}</div><h3 style="margin:4px 0">${t}</h3><div class="muted" style="margin-bottom:12px">${d}</div><button class="btn" ${att} style="width:100%">${lab}</button></div>`;
   const st={pending:'en attente',approved:'envoyé ✅',rejected:'refusé (points rendus)'};
-  $('#view').innerHTML=`<div id="dbcard"></div><div class="card"><div style="font-weight:800;font-size:17px">🏆 GAGNE DES POINTS EN JOUANT</div>
+  $('#view').innerHTML=`<div id="dbcard"></div><div id="oncard"></div><div class="card"><div style="font-weight:800;font-size:17px">🏆 GAGNE DES POINTS EN JOUANT</div>
   <div class="muted" style="margin:4px 0 8px">Victoire gratuite : +${win} points (max ${cap} par jour). <b>${goal} POINTS = CADEAU GARANTI</b> : un forfait internet (${esc(c.pts_gift||'')}) ou un article de la boutique.</div>
   <div style="background:var(--soft);border-radius:8px;height:12px;overflow:hidden"><div style="width:${pct}%;height:100%;background:var(--pr)"></div></div>
   <div class="row" style="justify-content:space-between;margin-top:6px"><b>${P.points} / ${goal} points</b><span class="muted">Aujourd'hui : ${P.today} / ${cap}</span></div>
@@ -1199,7 +1244,7 @@ async function vJeux(){lStop();pStop();dStop();
   +g('❌','Morpion','2 joueurs en ligne · aligne 3 symboles avant ton adversaire','data-dg="play" data-k="morpion"')
   +g('🔴','Puissance 4','2 joueurs en ligne · aligne 4 jetons en ligne, colonne ou diagonale','data-dg="play" data-k="p4"')
   +g('🏎️','Course de voitures','2 joueurs en ligne · tapez le plus vite possible, le premier arrivé gagne','data-dg="play" data-k="course"');
-  dailyCard()}
+  dailyCard();onlineCard()}
 async function rewardModal(){const c=await cfg();
   modal(`<h3>🎁 Mon cadeau</h3><p class="muted" style="margin-top:0">Choisis ton cadeau. L'administrateur le valide puis te l'envoie.</p>
   <select id="rw_k"><option value="forfait">Forfait internet (${esc(c.pts_gift||'')})</option><option value="boutique">Un article de la boutique</option></select>
@@ -1503,6 +1548,7 @@ document.addEventListener('click',async e=>{
    case'rpok':return decideReport(id,false);
    case'rules':return rulesModal();
    case'claimdaily':return claimDaily();
+   case'ambshare':return ambShare();
    case'pok':return decidePremium(id,true);
    case'pno':return decidePremium(id,false);
    case'logout':clearInterval(S.hb);if(S.rt)sb.removeChannel(S.rt);await sb.auth.signOut();return
